@@ -103,7 +103,13 @@ ORDER BY m.date ASC;
 `;
 
     return withReadableCopy(dbPath, (safeDbPath) => {
-      const output = execFileSync("sqlite3", [safeDbPath], { input: sql, encoding: "utf8" });
+      const output = execFileSync("sqlite3", [safeDbPath], {
+        input: sql,
+        encoding: "utf8",
+        // Default maxBuffer is 1 MiB, which overflows (ENOBUFS) on multi-year
+        // date ranges where the JSON output can exceed 30 MB. Raise to 1 GiB.
+        maxBuffer: 1024 * 1024 * 1024,
+      });
       const rows = JSON.parse(output) as Array<Record<string, string | number>>;
       const conversations = new Map<string, NormalizedConversation>();
       for (const row of rows) {
