@@ -19,6 +19,10 @@ const LABEL = "ai.aver.to.imessage-to-markdown";
 function buildRunnerScript(configPath: string): string {
   return `#!/bin/zsh
 set -euo pipefail
+# launchd runs agents with a minimal PATH that does not include node, jq,
+# or Homebrew binaries. Export a PATH that covers both Apple Silicon and
+# Intel Homebrew prefixes so \`node\`, \`pmset\`, etc. resolve.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
 CONFIG_PATH=${JSON.stringify(configPath)}
 if [[ ! -f "$CONFIG_PATH" ]]; then
   echo "Missing config: $CONFIG_PATH" >&2
