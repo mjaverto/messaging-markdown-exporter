@@ -25,11 +25,15 @@ export async function main(argv = process.argv): Promise<void> {
     .option("--end <iso>", "End datetime ISO8601")
     .option("--my-name <name>", "Label for sent messages", "Mike")
     .option("--include-empty", "Include empty messages with only metadata")
+    .option("--no-contacts", "Skip Contacts.app lookup; do not resolve names")
+    .option("--use-contact-names", "Use resolved contact names as filenames for 1:1 chats")
     .parse(argv);
 
   const options = program.opts();
   const end = parseDate(options.end, new Date());
   const start = parseDate(options.start, new Date(end.getTime() - Number(options.days) * 24 * 60 * 60 * 1000));
+  // commander's --no-contacts flips opts.contacts to false; default is true.
+  const useContacts = options.contacts !== false;
 
   const result = await exportFromSource(String(options.source), {
     dbPath: expandHome(options.dbPath),
@@ -39,6 +43,8 @@ export async function main(argv = process.argv): Promise<void> {
     end,
     myName: options.myName,
     includeEmpty: Boolean(options.includeEmpty),
+    useContacts,
+    useContactNames: Boolean(options.useContactNames),
   });
 
   console.log(`Wrote ${result.filesWritten} file(s).`);

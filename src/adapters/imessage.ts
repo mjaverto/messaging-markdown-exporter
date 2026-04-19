@@ -83,8 +83,10 @@ SELECT
   COALESCE(m.text, '') AS text,
   COALESCE(hex(m.attributedBody), '') AS attributed_body_hex,
   COALESCE(h.id, '') AS sender_handle,
+  COALESCE(c.ROWID, 0) AS chat_id,
   COALESCE(c.guid, '') AS chat_guid,
   COALESCE(c.display_name, '') AS chat_display_name,
+  COALESCE(m.service, '') AS service,
   COALESCE(GROUP_CONCAT(DISTINCT h2.id), '') AS participant_handles,
   COALESCE(GROUP_CONCAT(DISTINCT a.filename), '') AS attachment_files,
   COALESCE(GROUP_CONCAT(DISTINCT a.mime_type), '') AS attachment_mime_types,
@@ -123,13 +125,18 @@ ORDER BY m.date ASC;
           .sort();
         const conversationId = String(row.chat_guid || row.chat_display_name || participants.join(",") || row.message_id);
         const title = String(row.chat_display_name || "") || participants.join(", ") || conversationId;
+        const chatIdRaw = Number(row.chat_id || 0);
+        const service = String(row.service || "") || null;
         const convo = conversations.get(conversationId) || {
           source: "imessage",
           conversationId,
           title,
           participants,
           messages: [],
-        };
+          chatId: chatIdRaw > 0 ? chatIdRaw : null,
+          service,
+        } satisfies NormalizedConversation;
+        if (!convo.service && service) convo.service = service;
         const isFromMe = Number(row.is_from_me || 0) === 1;
         const files = String(row.attachment_files || "").split(",").map((value) => value.trim()).filter(Boolean);
         const mimeTypes = String(row.attachment_mime_types || "").split(",").map((value) => value.trim()).filter(Boolean);

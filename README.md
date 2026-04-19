@@ -76,6 +76,51 @@ node dist/cli.js \
   --output-dir ~/brain/messages
 ```
 
+## Contacts integration (iMessage)
+
+For the `imessage` source, the exporter dumps Contacts.app once per run via
+JXA and resolves chat handles (phone numbers, emails) to display names. The
+resolved name is used in the markdown header, message senders, and the YAML
+frontmatter.
+
+The first run will trigger a Contacts permission prompt for the binary
+running `osascript` (your terminal app, or the launchd-spawning process).
+If access is denied or unavailable, the exporter logs a one-line warning
+and falls back to raw handles -- exports still succeed.
+
+Phone numbers are normalized to the last 10 digits for matching (US-centric;
+documented tradeoff). Emails are lowercased and trimmed.
+
+### Flags
+
+- `--no-contacts` -- skip Contacts.app entirely (no permission prompt).
+- `--use-contact-names` -- when set, 1:1 chat output files are named after
+  the resolved contact (e.g. `Karissa Smith.md`) instead of the slugified
+  handle. Group chats keep slug-based filenames. Default off for backward
+  compatibility with installed runners.
+
+## YAML frontmatter
+
+Every generated markdown file starts with a YAML frontmatter block:
+
+```yaml
+---
+contact: "Karissa Smith"          # 1:1 chats only
+participants: ["Alice", "Bob"]    # group chats only
+handles: ["+15705551234"]
+chat_id: 42                       # source-specific stable id (iMessage ROWID)
+service: "iMessage"
+source: "imessage"
+message_count: 12
+first_message: 2026-04-19T12:30:00.000Z
+last_message: 2026-04-19T18:45:00.000Z
+exported_at: 2026-04-19T19:30:00.000Z
+---
+```
+
+Downstream tooling (Obsidian, Dataview, custom indexers) can rely on the
+shape above being stable across sources.
+
 ## Installer
 
 The installer now supports choosing a source and scheduling export jobs.
