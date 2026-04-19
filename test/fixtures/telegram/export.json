@@ -1,0 +1,22 @@
+{
+  "id": 42,
+  "name": "Saved Messages",
+  "messages": [
+    {
+      "id": 1,
+      "date": "2026-04-19T10:00:00",
+      "from": "Mike",
+      "text": [
+        "hello ",
+        { "type": "bold", "text": "world" }
+      ]
+    },
+    {
+      "id": 2,
+      "date": "2026-04-19T10:05:00",
+      "from": "Mike",
+      "text": "plain follow-up",
+      "photo": "photos/photo_1.jpg"
+    }
+  ]
+}

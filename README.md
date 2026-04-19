@@ -38,6 +38,13 @@ npm install
 npm run build
 ```
 
+Package name:
+- `messaging-markdown-exporter`
+
+CLI binaries:
+- `messaging-markdown-exporter`
+- `imessage-to-markdown` (legacy alias)
+
 ## CLI usage
 
 ### iMessage
@@ -124,6 +131,8 @@ shape above being stable across sources.
 ## Installer
 
 The installer now supports choosing a source and scheduling export jobs.
+
+Right now, scheduled automation is strongest for iMessage and local file-based export flows. For Telegram, WhatsApp, and Signal, the installer can schedule imports from a known export path, but it does not itself create those upstream exports.
 
 Interactive:
 
