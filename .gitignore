@@ -1,11 +1,13 @@
+node_modules/
+dist/
+coverage/
+.pytest_cache/
 .venv/
 __pycache__/
-.pytest_cache/
 *.pyc
 *.pyo
 *.pyd
 build/
-dist/
 *.egg-info/
 exports/
 .DS_Store

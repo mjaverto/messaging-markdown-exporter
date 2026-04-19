@@ -1,0 +1,40 @@
+{
+  "name": "imessage-to-markdown",
+  "version": "0.2.0",
+  "description": "Export Apple Messages chat.db conversations to markdown files with an installable launchd automation flow",
+  "type": "module",
+  "bin": {
+    "imessage-to-markdown": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup src/cli.ts src/install.ts --format esm --dts --clean --out-dir dist",
+    "dev": "tsx src/cli.ts",
+    "install:local": "tsx src/install.ts",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "imessage",
+    "messages",
+    "markdown",
+    "macos",
+    "launchd"
+  ],
+  "author": "Mike Averto",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.1",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/prompts": "^2.4.9",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

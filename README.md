@@ -1,8 +1,14 @@
 # imessage-to-markdown
 
-Export Apple Messages from macOS `chat.db` into clean markdown files, one conversation per day.
+Export Apple Messages from macOS `chat.db` into clean markdown files, one conversation per day, with an install flow that can set up daily automation for you.
 
-This is meant for local-first personal archiving, knowledge-base ingestion, and workflows like Brain or `qmd` indexing.
+This tool is built for local-first personal archiving, Brain-style ingestion, and simple daily syncs from Messages into markdown.
+
+## Why TypeScript
+
+This project started in Python, then moved to TypeScript because the long-term goal is not just a script, it is an easy installable tool that more people will actually want to touch, tweak, and contribute to.
+
+TypeScript is a better fit for that packaging and CLI ergonomics story.
 
 ## What it does
 
@@ -13,19 +19,29 @@ This is meant for local-first personal archiving, knowledge-base ingestion, and 
 - skips media payloads, but notes when a message had attachments
 - supports excluding chats by regex
 - tries to skip obvious system-ish threads by default
+- includes an installer that can create and load a `launchd` agent
+- supports interactive install and fully non-interactive CLI install
 
 ## What it does not do
 
 - it does not send messages
 - it does not upload anything anywhere
-- it does not export actual image/video/audio payloads
-- it does not perfectly reconstruct every modern iMessage rich-text edge case
+- it does not export actual image, video, or audio payloads
+- it does not perfectly reconstruct every iMessage rich-text edge case
+
+## Requirements
+
+- macOS
+- Node.js 20+
+- `sqlite3` available on the system
+- `jq` available on the system for the generated runner script
+- Full Disk Access for the terminal app or app that will read `~/Library/Messages/chat.db`
 
 ## macOS permission note
 
 Apple protects `~/Library/Messages/chat.db` behind Full Disk Access.
 
-You will likely need to give **Terminal**, **iTerm**, or whatever launches Python full disk access:
+You will likely need to give **Terminal**, **iTerm**, or whatever launches Node full disk access:
 
 - System Settings
 - Privacy & Security
@@ -36,59 +52,110 @@ Without that, reads from `chat.db` will fail.
 
 ## Install
 
-### Local clone
-
 ```bash
 git clone https://github.com/mjaverto/imessage-to-markdown.git
 cd imessage-to-markdown
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+npm install
+npm run build
 ```
 
-### Quick run without install
-
-```bash
-PYTHONPATH=src python3 -m imessage_to_markdown --help
-```
-
-## Usage
+## Basic usage
 
 Export last 24 hours to `./exports`:
 
 ```bash
-python3 -m imessage_to_markdown
+node dist/cli.js
 ```
 
-Export last 3 days into a Brain ingest folder:
+Or with `tsx` during development:
 
 ```bash
-python3 -m imessage_to_markdown \
-  --days 3 \
-  --output-dir "$HOME/brain/inbox/messages"
+npx tsx src/cli.ts --output-dir "$HOME/brain/inbox/messages"
+```
+
+### Examples
+
+Export last 3 days:
+
+```bash
+node dist/cli.js --days 3 --output-dir "$HOME/brain/inbox/messages"
 ```
 
 Export an exact range:
 
 ```bash
-python3 -m imessage_to_markdown \
-  --start 2026-04-19T00:00:00 \
-  --end 2026-04-20T00:00:00 \
+node dist/cli.js \
+  --start 2026-04-19T00:00:00-04:00 \
+  --end 2026-04-20T00:00:00-04:00 \
   --output-dir "$HOME/brain/inbox/messages"
 ```
 
 Exclude chats matching a regex:
 
 ```bash
-python3 -m imessage_to_markdown \
-  --exclude-chat-regex 'Amazon|CVS|verification|OTP'
+node dist/cli.js --exclude-chat-regex 'Amazon|CVS|verification|OTP'
 ```
 
 Emit JSON summary:
 
 ```bash
-python3 -m imessage_to_markdown --json
+node dist/cli.js --json
 ```
+
+## One-click style install
+
+There are two install modes.
+
+### 1. Interactive install
+
+This prompts for the output directory and automation settings:
+
+```bash
+npm run install:local
+```
+
+You will be asked:
+- where markdown files should be written
+- what time the export should run daily
+- whether to run only on AC power
+- whether to run `qmd embed` afterward
+- what your sent-message name should be
+- which regex to use for ignored chats
+
+### 2. Fully non-interactive install
+
+This is good for agents, scripts, and power users:
+
+```bash
+node dist/install.js \
+  --yes \
+  --output-dir "$HOME/brain/inbox/messages" \
+  --schedule 05:30 \
+  --ac-power-only \
+  --run-qmd-embed \
+  --qmd-command "qmd embed" \
+  --my-name "Mike" \
+  --exclude-chat-regex 'Amazon|CVS|verification|OTP'
+```
+
+That writes:
+- a config file in `~/.imessage-to-markdown/`
+- a runner shell script in `~/.imessage-to-markdown/`
+- a LaunchAgent plist in `~/Library/LaunchAgents/`
+
+Then it loads the LaunchAgent with `launchctl`.
+
+## How automation works
+
+The installer creates a daily `launchd` job.
+
+At runtime the job:
+- checks whether AC-only mode is enabled
+- if enabled, skips the run when the Mac is on battery
+- exports messages to markdown
+- optionally runs a follow-up command like `qmd embed`
+
+So the battery-aware logic is handled in the generated runner script, not by `launchd` itself.
 
 ## Output format
 
@@ -97,7 +164,7 @@ Example file:
 ```md
 # Karissa
 Date: 2026-04-19
-Generated: 2026-04-19T09:42:13-04:00
+Generated: 2026-04-19T13:42:13.000Z
 
 - 08:12 Mike: Heading out now
 - 08:13 Karissa: Can you grab coffee on the way back?
@@ -120,73 +187,29 @@ If your Brain system already ingests a folder tree, point `--output-dir` there d
 Example:
 
 ```bash
-python3 -m imessage_to_markdown \
-  --output-dir "$HOME/brain/inbox/messages"
+node dist/cli.js --output-dir "$HOME/brain/inbox/messages"
 qmd embed
 ```
 
-If `qmd embed` is too expensive to run every day, point this exporter at a staging folder and let your existing ingest pipeline pick it up.
-
-## launchd example
-
-Create `~/Library/LaunchAgents/com.mjaverto.imessage-to-markdown.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>com.mjaverto.imessage-to-markdown</string>
-
-    <key>ProgramArguments</key>
-    <array>
-      <string>/bin/zsh</string>
-      <string>-lc</string>
-      <string>cd ~/src/imessage-to-markdown && source .venv/bin/activate && python -m imessage_to_markdown --output-dir ~/brain/inbox/messages && qmd embed</string>
-    </array>
-
-    <key>StartCalendarInterval</key>
-    <dict>
-      <key>Hour</key>
-      <integer>5</integer>
-      <key>Minute</key>
-      <integer>30</integer>
-    </dict>
-
-    <key>RunAtLoad</key>
-    <true/>
-
-    <key>StandardOutPath</key>
-    <string>/tmp/imessage-to-markdown.out</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/imessage-to-markdown.err</string>
-  </dict>
-</plist>
-```
-
-Then load it:
-
-```bash
-launchctl unload ~/Library/LaunchAgents/com.mjaverto.imessage-to-markdown.plist 2>/dev/null || true
-launchctl load ~/Library/LaunchAgents/com.mjaverto.imessage-to-markdown.plist
-```
+Or let the installer wire that into the scheduled job.
 
 ## Development
 
-Run tests:
-
 ```bash
-PYTHONPATH=src python3 -m pytest
+npm install
+npm run build
+npm test
+npm run lint
 ```
 
 ## Limitations
 
 - Apple changes the Messages schema over time.
-- `attributedBody` parsing is best-effort, not perfect.
+- `attributedBody` extraction is best-effort.
 - group chat naming can be inconsistent if a chat has no display name.
-- reactions, edits, thread replies, and some system messages are not yet rendered in a rich way.
+- reactions, edits, replies, and some system messages are not yet richly rendered.
 - media is intentionally omitted.
+- the installer currently expects `jq` to be available for config parsing in the generated runner script.
 
 ## License
 
