@@ -1,9 +1,10 @@
 {
-  "name": "imessage-to-markdown",
-  "version": "0.2.0",
-  "description": "Export Apple Messages chat.db conversations to markdown files with an installable launchd automation flow",
+  "name": "messaging-markdown-exporter",
+  "version": "0.3.0",
+  "description": "Export iMessage, Telegram, WhatsApp, and Signal conversations into a shared markdown format",
   "type": "module",
   "bin": {
+    "messaging-markdown-exporter": "dist/cli.js",
     "imessage-to-markdown": "dist/cli.js"
   },
   "scripts": {
@@ -18,10 +19,12 @@
   },
   "keywords": [
     "imessage",
+    "telegram",
+    "whatsapp",
+    "signal",
     "messages",
     "markdown",
-    "macos",
-    "launchd"
+    "export"
   ],
   "author": "Mike Averto",
   "license": "MIT",

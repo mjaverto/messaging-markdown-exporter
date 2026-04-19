@@ -1,23 +1,33 @@
-# imessage-to-markdown
+# Messaging Markdown Exporter
 
-Export multiple messaging sources into a shared markdown format.
+Export conversations from multiple messaging apps into a shared markdown format.
 
 ## Supported sources
 
-- `imessage`
-  - reads macOS `chat.db`
-- `telegram`
-  - reads Telegram Desktop JSON exports
-- `whatsapp`
-  - reads exported WhatsApp chat `.txt` files
-- `signal`
-  - reads Signal markdown exports, designed to pair with tools like `signal-export`
+| Source | Input | Support level |
+|---|---|---|
+| `imessage` | macOS `chat.db` | deepest native support |
+| `telegram` | Telegram Desktop JSON export | good first-pass adapter |
+| `whatsapp` | exported WhatsApp `.txt` chat logs | good first-pass adapter |
+| `signal` | Signal markdown exports from tools like `signal-export` | import adapter |
 
-## Core idea
+## Architecture
 
-Each source has its own adapter, but all adapters normalize into one internal conversation/message model and one shared markdown renderer.
+The repo is structured around three layers:
 
-That means the repo is now structured to support multi-platform export without each platform reinventing rendering.
+1. **Adapters**
+   - one per source system
+   - convert source-specific exports or databases into a normalized model
+
+2. **Normalized model**
+   - shared conversation/message representation
+   - keeps rendering independent from source-specific parsing
+
+3. **Renderer**
+   - one shared markdown renderer
+   - creates daily markdown files in a consistent layout
+
+This keeps source complexity from leaking across the whole codebase.
 
 ## Install
 
@@ -28,7 +38,7 @@ npm install
 npm run build
 ```
 
-## Usage
+## CLI usage
 
 ### iMessage
 
@@ -66,23 +76,57 @@ node dist/cli.js \
   --output-dir ~/brain/messages
 ```
 
-## Installer status
+## Installer
 
-The included installer is still aimed at the iMessage scheduled-export flow on macOS. The repo now supports multiple adapters, but the installer is not yet a universal multi-source setup wizard.
+The installer now supports choosing a source and scheduling export jobs.
+
+Interactive:
+
+```bash
+npm run install:local
+```
+
+Non-interactive example:
+
+```bash
+node dist/install.js \
+  --source imessage \
+  --yes \
+  --output-dir "$HOME/brain/iMessage" \
+  --schedule 05:30 \
+  --ac-power-only
+```
+
+Doctor mode:
+
+```bash
+node dist/install.js --doctor --source imessage
+```
+
+Uninstall:
+
+```bash
+node dist/install.js --uninstall
+```
 
 ## Source-specific notes
 
+### iMessage
+- still the strongest adapter
+- uses direct `chat.db` reads
+- attributed-body cleanup is heuristic, not perfect
+
 ### Telegram
-- best paired with Telegram Desktop export JSON
-- current adapter expects JSON exports
+- designed for Telegram Desktop JSON exports
+- best when fed clean exported chat history
 
 ### WhatsApp
-- current adapter expects exported text chat logs
-- deeper backup/database support is still future work
+- designed for exported text logs
+- backup/database parsing is future work
 
 ### Signal
-- current adapter is designed to ingest markdown-style exports
-- practical pairing: `carderne/signal-export`
+- designed to ingest exported markdown
+- best paired with an external exporter like `carderne/signal-export`
 
 ## Development
 
@@ -96,9 +140,9 @@ npm run lint
 ## Current limitations
 
 - iMessage remains the deepest native integration
-- Telegram, WhatsApp, and Signal support are adapter-first, not yet exhaustive
-- message schema quirks vary by platform export format
-- attachments are intentionally simplified in the common markdown renderer
+- Telegram, WhatsApp, and Signal support are adapter-first, not exhaustive
+- attachment handling is still simplified in shared markdown output
+- some stale source-format quirks will still need fixture-driven hardening over time
 
 ## License
 
