@@ -10,6 +10,15 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: ["src/cli.ts", "src/install.ts", "src/telegram-login.ts"],
       reporter: ["text", "lcov"],
+      // Floor set below current levels so normal churn doesn't turn
+      // CI red, but a sudden drop (e.g. an entire adapter losing its
+      // tests) will. Raise these as coverage climbs.
+      thresholds: {
+        lines: 75,
+        functions: 75,
+        branches: 70,
+        statements: 75,
+      },
     },
   },
 });

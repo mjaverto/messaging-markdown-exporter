@@ -233,6 +233,19 @@ npm test
 npm run lint
 ```
 
+### Coverage thresholds
+
+`npm test` (via `vitest.config.ts`) enforces minimum coverage:
+
+| Metric     | Floor |
+|------------|------:|
+| Lines      |  75%  |
+| Statements |  75%  |
+| Functions  |  75%  |
+| Branches   |  70%  |
+
+The floors are set below current coverage so normal churn doesn't turn CI red, but a sudden drop (e.g. an entire adapter losing its tests) will. Raise these as coverage climbs — check current numbers with `npx vitest run --coverage`.
+
 ## Current limitations
 
 - Attachment handling is still simplified across all sources — the markdown
