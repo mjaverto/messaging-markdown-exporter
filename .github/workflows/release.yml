@@ -64,6 +64,10 @@ jobs:
         if: steps.skip_check.outputs.skip != 'true'
         run: npm test
 
+      - name: Test (E2E against built CLI)
+        if: steps.skip_check.outputs.skip != 'true'
+        run: npm run test:e2e
+
       - name: Configure git identity
         if: steps.skip_check.outputs.skip != 'true'
         run: |
