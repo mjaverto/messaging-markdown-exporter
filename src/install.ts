@@ -40,17 +40,41 @@ if (config.acPowerOnly) {
   }
 }
 process.chdir(config.repoDir);
-const args = ["dist/cli.js", "--source", config.source, "--output-dir", config.outputDir];
-if (config.source === "imessage") {
-  args.push("--db-path", config.dbPath, "--my-name", config.myName);
-  if (config.includeEmpty) args.push("--include-empty");
-} else if (config.exportPath) {
-  args.push("--export-path", config.exportPath);
+
+// Multi-source: iterate over enabledSources if provided, otherwise fall back
+// to the single \`source\` field for backward compatibility with older configs.
+const sources = Array.isArray(config.enabledSources) && config.enabledSources.length > 0
+  ? config.enabledSources
+  : [config.source];
+
+let anyFailed = false;
+for (const source of sources) {
+  const args = ["dist/cli.js", "--source", source, "--output-dir", config.outputDir];
+  if (source === "imessage") {
+    args.push("--db-path", config.dbPath, "--my-name", config.myName);
+    if (config.includeEmpty) args.push("--include-empty");
+  } else if (source === "signal") {
+    if (config.signalDbPath) args.push("--signal-db-path", config.signalDbPath);
+    if (config.myName) args.push("--my-name", config.myName);
+  } else if (source === "whatsapp") {
+    if (config.whatsappDbPath) args.push("--whatsapp-db-path", config.whatsappDbPath);
+    if (config.myName) args.push("--my-name", config.myName);
+  } else if (source === "telegram") {
+    if (config.myName) args.push("--my-name", config.myName);
+  } else if (config.exportPath) {
+    args.push("--export-path", config.exportPath);
+  }
+  try {
+    execFileSync("node", args, { stdio: "inherit" });
+  } catch (err) {
+    anyFailed = true;
+    console.error("[runner] source", source, "failed:", err && err.message);
+  }
 }
-execFileSync("node", args, { stdio: "inherit" });
 if (config.runQmdEmbed && config.qmdCommand) {
   execFileSync("bash", ["-lc", config.qmdCommand], { stdio: "inherit" });
 }
+process.exit(anyFailed ? 1 : 0);
 EOF
 `;
 }
@@ -134,13 +158,19 @@ function buildConfig(input: {
   myName: string;
   includeEmpty: boolean;
   installDir: string;
+  enabledSources?: string[];
+  signalDbPath?: string;
+  whatsappDbPath?: string;
 }): AppConfig {
   const { hour, minute } = validateSchedule(input.schedule);
   return {
     version: CONFIG_VERSION,
     source: input.source,
+    enabledSources: input.enabledSources && input.enabledSources.length > 0 ? input.enabledSources : undefined,
     outputDir: expandHome(input.outputDir),
     exportPath: input.exportPath ? expandHome(input.exportPath) : undefined,
+    signalDbPath: input.signalDbPath ? expandHome(input.signalDbPath) : undefined,
+    whatsappDbPath: input.whatsappDbPath ? expandHome(input.whatsappDbPath) : undefined,
     scheduleHour: hour,
     scheduleMinute: minute,
     runQmdEmbed: input.runQmdEmbed,
@@ -157,7 +187,13 @@ function buildConfig(input: {
 async function resolveConfig(): Promise<AppConfig> {
   const program = new Command();
   program
-    .option("--source <name>", "Source adapter to schedule", "imessage")
+    .option("--source <name>", "Single source adapter to schedule", "imessage")
+    .option(
+      "--enabled-sources <list>",
+      "Comma-separated list of sources for the runner to iterate (overrides --source)",
+    )
+    .option("--signal-db-path <path>", "Override default Signal DB path")
+    .option("--whatsapp-db-path <path>", "Override default WhatsApp DB path")
     .option("--output-dir <path>")
     .option("--export-path <path>")
     .option("--schedule <hh:mm>", "Daily schedule time", "05:30")
@@ -189,10 +225,16 @@ async function resolveConfig(): Promise<AppConfig> {
   }
 
   if (cli.yes) {
+    const enabledSources = cli.enabledSources
+      ? String(cli.enabledSources).split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
     return buildConfig({
       source: String(cli.source || "imessage"),
+      enabledSources,
       outputDir: cli.outputDir || DEFAULT_OUTPUT_DIR,
       exportPath: cli.exportPath,
+      signalDbPath: cli.signalDbPath,
+      whatsappDbPath: cli.whatsappDbPath,
       schedule: cli.schedule,
       runQmdEmbed: Boolean(cli.runQmdEmbed),
       qmdCommand: cli.qmdCommand,

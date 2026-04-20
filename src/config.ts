@@ -3,8 +3,19 @@ export const CONFIG_VERSION = 1;
 export interface AppConfig {
   version: number;
   source: string;
+  /**
+   * When set, the runner template iterates over each entry instead of just
+   * `source`. Lets a single launchd job export multiple sources back-to-back
+   * (iMessage + Signal + WhatsApp + Telegram). Older single-source configs
+   * remain valid.
+   */
+  enabledSources?: string[];
   outputDir: string;
   exportPath?: string;
+  /** Optional explicit DB path for the Signal adapter. */
+  signalDbPath?: string;
+  /** Optional explicit DB path for the WhatsApp adapter. */
+  whatsappDbPath?: string;
   scheduleHour: number;
   scheduleMinute: number;
   runQmdEmbed: boolean;
