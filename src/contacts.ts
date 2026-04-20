@@ -1,4 +1,8 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
 
 /**
  * Map from a normalized handle (phone-last-10 or lowercased email) to a
@@ -85,6 +89,198 @@ interface RawContact {
   name: string;
   phones: string[];
   emails: string[];
+}
+
+/**
+ * Default location of the macOS AddressBook Sources directory. Each
+ * subdirectory corresponds to one account (iCloud, On My Mac, Exchange,
+ * CardDAV, etc.) and contains its own `AddressBook-v22.abcddb` SQLite file.
+ */
+function defaultAddressBookSourcesDir(): string {
+  return path.join(os.homedir(), "Library", "Application Support", "AddressBook", "Sources");
+}
+
+function displayNameFromRecord(first: string | null, last: string | null, nickname: string | null, organization: string | null): string {
+  const firstTrim = (first || "").trim();
+  const lastTrim = (last || "").trim();
+  const combined = [firstTrim, lastTrim].filter(Boolean).join(" ").trim();
+  if (combined) return combined;
+  const nick = (nickname || "").trim();
+  if (nick) return nick;
+  const org = (organization || "").trim();
+  if (org) return org;
+  return "";
+}
+
+/**
+ * Copy a `.abcddb` file (plus any WAL/SHM sidecars) into a temp dir so we
+ * can open it read-only without contending with the live Contacts.app
+ * process. Mirrors the pattern used by the iMessage / Signal adapters.
+ */
+function withReadableAbcddbCopy<T>(src: string, fn: (safeDbPath: string) => T): T {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contacts-ab-"));
+  const safeDb = path.join(tmpDir, "ab.abcddb");
+  try {
+    fs.copyFileSync(src, safeDb);
+    for (const suffix of ["-wal", "-shm"]) {
+      const sidecar = `${src}${suffix}`;
+      if (fs.existsSync(sidecar)) fs.copyFileSync(sidecar, `${safeDb}${suffix}`);
+    }
+    return fn(safeDb);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+// Native module loaded via createRequire so tsup leaves it as a runtime
+// require in the ESM bundle instead of trying to inline it (which fails
+// with "Dynamic require of ... is not supported" for CJS native modules).
+const nativeRequire = createRequire(import.meta.url);
+type AbcdDatabaseCtor = new (
+  filename: string,
+  options?: { readonly?: boolean; fileMustExist?: boolean },
+) => {
+  pragma: (source: string, options?: { simple?: boolean }) => unknown;
+  prepare: (sql: string) => {
+    all: (...params: unknown[]) => unknown[];
+  };
+  close: () => void;
+};
+
+interface RecordRow {
+  Z_PK: number;
+  ZFIRSTNAME: string | null;
+  ZLASTNAME: string | null;
+  ZNICKNAME: string | null;
+  ZORGANIZATION: string | null;
+}
+
+interface PhoneRow {
+  ZOWNER: number | null;
+  ZFULLNUMBER: string | null;
+}
+
+interface EmailRow {
+  ZOWNER: number | null;
+  ZADDRESS: string | null;
+}
+
+/**
+ * Read one `.abcddb` file into a normalized handle -> display-name map.
+ *
+ * AddressBook schema (v22, macOS 14+):
+ * - `ZABCDRECORD`: one row per person. Display name is
+ *   `ZFIRSTNAME + " " + ZLASTNAME`, falling back to `ZNICKNAME` or
+ *   `ZORGANIZATION` for org-only cards.
+ * - `ZABCDPHONENUMBER`: `ZOWNER` (FK -> ZABCDRECORD.Z_PK), `ZFULLNUMBER`.
+ * - `ZABCDEMAILADDRESS`: `ZOWNER` (FK), `ZADDRESS`.
+ *
+ * Normalization matches the JXA path: phones stripped to last 10 digits,
+ * emails lowercased + trimmed.
+ */
+function loadFromAbcddb(dbPath: string): ContactsMap {
+  const Database = nativeRequire("better-sqlite3-multiple-ciphers") as AbcdDatabaseCtor;
+  const map: ContactsMap = new Map();
+
+  return withReadableAbcddbCopy(dbPath, (safeDbPath) => {
+    // AddressBook .abcddb files are plaintext SQLite -- no cipher pragma
+    // needed. better-sqlite3-multiple-ciphers auto-detects and opens them
+    // fine because their header is not SQLCipher-encrypted.
+    const db = new Database(safeDbPath, { readonly: true, fileMustExist: true });
+
+    try {
+      const records = db.prepare(
+        "SELECT Z_PK, ZFIRSTNAME, ZLASTNAME, ZNICKNAME, ZORGANIZATION FROM ZABCDRECORD",
+      ).all() as RecordRow[];
+
+      const nameByPk = new Map<number, string>();
+      for (const r of records) {
+        const name = displayNameFromRecord(r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.ZORGANIZATION);
+        if (name) nameByPk.set(r.Z_PK, name);
+      }
+
+      const phones = db.prepare(
+        "SELECT ZOWNER, ZFULLNUMBER FROM ZABCDPHONENUMBER WHERE ZFULLNUMBER IS NOT NULL",
+      ).all() as PhoneRow[];
+      for (const p of phones) {
+        if (p.ZOWNER == null || !p.ZFULLNUMBER) continue;
+        const name = nameByPk.get(p.ZOWNER);
+        if (!name) continue;
+        const key = normalizeHandle(p.ZFULLNUMBER);
+        if (key && !map.has(key)) map.set(key, name);
+      }
+
+      const emails = db.prepare(
+        "SELECT ZOWNER, ZADDRESS FROM ZABCDEMAILADDRESS WHERE ZADDRESS IS NOT NULL",
+      ).all() as EmailRow[];
+      for (const e of emails) {
+        if (e.ZOWNER == null || !e.ZADDRESS) continue;
+        const name = nameByPk.get(e.ZOWNER);
+        if (!name) continue;
+        const key = normalizeHandle(e.ZADDRESS);
+        if (key && !map.has(key)) map.set(key, name);
+      }
+    } finally {
+      db.close();
+    }
+
+    return map;
+  });
+}
+
+/**
+ * Merge a source-level map into the accumulator. First writer wins, which
+ * gives a deterministic result when the same handle appears in multiple
+ * AddressBook sources (e.g. a number saved both under iCloud and On My Mac).
+ */
+function mergeContactsMap(target: ContactsMap, source: ContactsMap): void {
+  for (const [key, value] of source) {
+    if (!target.has(key)) target.set(key, value);
+  }
+}
+
+/**
+ * Read every `AddressBook-v22.abcddb` under `~/Library/Application Support/
+ * AddressBook/Sources/<UUID>/` and merge the results.
+ *
+ * Returns `null` if the sources directory doesn't exist (e.g. Contacts has
+ * never been opened on this Mac, or the user keeps contacts elsewhere),
+ * which tells the caller to try the JXA fallback.
+ */
+export function loadFromAddressBookSQLite(options: { sourcesDir?: string } = {}): { map: ContactsMap; sourceCount: number } | null {
+  const sourcesDir = options.sourcesDir || defaultAddressBookSourcesDir();
+  if (!fs.existsSync(sourcesDir)) return null;
+
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(sourcesDir);
+  } catch {
+    return null;
+  }
+
+  const dbPaths: string[] = [];
+  for (const entry of entries.sort()) {
+    const candidate = path.join(sourcesDir, entry, "AddressBook-v22.abcddb");
+    if (fs.existsSync(candidate)) dbPaths.push(candidate);
+  }
+  if (dbPaths.length === 0) return null;
+
+  const merged: ContactsMap = new Map();
+  let usedSources = 0;
+  for (const dbPath of dbPaths) {
+    try {
+      const perSource = loadFromAbcddb(dbPath);
+      if (perSource.size > 0) {
+        mergeContactsMap(merged, perSource);
+        usedSources += 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[contacts] Skipped AddressBook source ${path.basename(path.dirname(dbPath))}: ${message}`);
+    }
+  }
+
+  return { map: merged, sourceCount: usedSources };
 }
 
 /**
