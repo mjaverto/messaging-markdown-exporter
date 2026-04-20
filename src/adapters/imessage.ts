@@ -112,7 +112,8 @@ ORDER BY m.date ASC;
         // date ranges where the JSON output can exceed 30 MB. Raise to 1 GiB.
         maxBuffer: 1024 * 1024 * 1024,
       });
-      const rows = JSON.parse(output) as Array<Record<string, string | number>>;
+      const trimmed = output.trim();
+      const rows = trimmed ? JSON.parse(trimmed) as Array<Record<string, string | number>> : [];
       const conversations = new Map<string, NormalizedConversation>();
       for (const row of rows) {
         const text = String(row.text || "").trim() || decodeAttributedBodyHex(String(row.attributed_body_hex || ""));
