@@ -50,6 +50,7 @@ const sources = Array.isArray(config.enabledSources) && config.enabledSources.le
 //   *  = unknown error — treat as permanent for safety
 let anyPermanent = false;
 let anyTransient = false;
+let successes = 0;
 const permanentSources = [];
 for (const source of sources) {
   const sourceOutputDir = sources.length > 1 ? \`\${config.outputDir}/\${source}\` : config.outputDir;
@@ -69,6 +70,7 @@ for (const source of sources) {
   }
   try {
     execFileSync("node", args, { stdio: "inherit" });
+    successes++;
   } catch (err) {
     const code = err && typeof err.status === "number" ? err.status : 1;
     if (code === 75) {
@@ -82,12 +84,19 @@ for (const source of sources) {
   }
 }
 if (config.runQmdEmbed && config.qmdCommand) {
-  try {
-    execFileSync("bash", ["-lc", config.qmdCommand], { stdio: "inherit" });
-  } catch (err) {
-    anyPermanent = true;
-    permanentSources.push("qmd-embed");
-    console.error(\`[runner] qmd-embed failed: \${err && err.message}\`);
+  // Skip qmd-embed if every adapter failed this tick. Otherwise
+  // qmd-embed would process leftover/stale markdown from prior runs
+  // and mask the underlying adapter failure.
+  if (successes === 0) {
+    console.warn("[runner] all adapters failed this tick; skipping qmd-embed");
+  } else {
+    try {
+      execFileSync("bash", ["-lc", config.qmdCommand], { stdio: "inherit" });
+    } catch (err) {
+      anyPermanent = true;
+      permanentSources.push("qmd-embed");
+      console.error(\`[runner] qmd-embed failed: \${err && err.message}\`);
+    }
   }
 }
 if (anyPermanent) {
