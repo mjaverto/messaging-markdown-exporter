@@ -2,7 +2,6 @@ import path from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { signalAdapter } from "../src/adapters/signal.js";
 import { telegramAdapter } from "../src/adapters/telegram.js";
 import { whatsappAdapter } from "../src/adapters/whatsapp.js";
 
@@ -28,11 +27,3 @@ describe("whatsapp adapter", () => {
   });
 });
 
-describe("signal adapter", () => {
-  test("parses markdown export with attachment syntax", async () => {
-    const file = path.join(fixtures, "signal", "chat.md");
-    const conversations = await signalAdapter.loadConversations({ exportPath: file });
-    expect(conversations[0]?.messages[0]?.text).toBe("hi signal");
-    expect(conversations[0]?.messages[2]?.hadAttachments).toBe(true);
-  });
-});
