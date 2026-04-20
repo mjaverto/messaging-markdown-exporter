@@ -7,9 +7,12 @@
  *   - kindFromMediaPath
  *   - resolveSender branches
  */
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import {
   macEpochToDate,
@@ -164,5 +167,74 @@ describe("TransientAdapterError shape from whatsapp", () => {
     expect(err.name).toBe("TransientAdapterError");
     expect(err.source).toBe("whatsapp");
     expect(err.message).toContain("locked");
+  });
+});
+
+// Mirror the real lock-path test from signal-adapter.test.ts so we have
+// parity coverage for WhatsApp. The adapter shells out to `sqlite3` via
+// execFileSync for `VACUUM INTO`, so a cross-process SQLite lock held on
+// the source file causes the child process to exit non-zero with
+// "database is locked" — which the adapter must map to TransientAdapterError.
+describe("whatsappAdapter — locked source DB", () => {
+  let tmpDir: string;
+  let lockedDbPath: string;
+  let writer:
+    | {
+        pragma: (source: string, options?: { simple?: boolean }) => unknown;
+        exec: (sql: string) => void;
+        close: () => void;
+      }
+    | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "whatsapp-lock-test-"));
+    lockedDbPath = path.join(tmpDir, "ChatStorage.sqlite");
+    fs.copyFileSync(WHATSAPP_DB, lockedDbPath);
+  });
+
+  afterEach(() => {
+    if (writer) {
+      try {
+        writer.exec("ROLLBACK");
+      } catch {
+        // transaction may already be aborted
+      }
+      try {
+        writer.close();
+      } catch {
+        // ignore
+      }
+      writer = undefined;
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("sqlite3 VACUUM INTO on a locked DB surfaces TransientAdapterError", async () => {
+    // Open a writer from a separate `better-sqlite3-multiple-ciphers`
+    // handle and hold an EXCLUSIVE transaction. The adapter's
+    // `sqlite3 VACUUM INTO` child process can't acquire a shared lock
+    // while this is held and exits with "database is locked".
+    const req = createRequire(import.meta.url);
+    const DatabaseCtor = req("better-sqlite3-multiple-ciphers") as new (filename: string) => {
+      pragma: (source: string, options?: { simple?: boolean }) => unknown;
+      exec: (sql: string) => void;
+      close: () => void;
+    };
+    writer = new DatabaseCtor(lockedDbPath);
+    // DELETE (rollback) journal mode — WAL allows concurrent readers, so we
+    // must pin the journal to rollback mode before grabbing the exclusive
+    // lock, otherwise the reader's shared lock slips past.
+    writer.pragma("journal_mode = DELETE");
+    writer.exec("BEGIN EXCLUSIVE");
+
+    await expect(
+      whatsappAdapter.loadConversations({
+        whatsappDbPath: lockedDbPath,
+        myName: "Me",
+        useContacts: false,
+        start: new Date("2024-01-01T00:00:00Z"),
+        end: new Date("2025-01-01T00:00:00Z"),
+      }),
+    ).rejects.toBeInstanceOf(TransientAdapterError);
   });
 });
