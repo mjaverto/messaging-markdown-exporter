@@ -26,19 +26,21 @@ function makeConversation(messages: NormalizedMessage[]): NormalizedConversation
 
 describe("renderConversationDays", () => {
   test("splits by date", () => {
-    const files = renderConversationDays(makeConversation([
-      makeMessage(1, "2026-04-19T08:30:00-04:00", "hey"),
-      makeMessage(2, "2026-04-20T09:30:00-04:00", "yo"),
-    ]));
+    const files = renderConversationDays(
+      makeConversation([
+        makeMessage(1, "2026-04-19T08:30:00-04:00", "hey"),
+        makeMessage(2, "2026-04-20T09:30:00-04:00", "yo"),
+      ]),
+    );
     expect(files).toHaveLength(2);
     expect(files[0]?.relativePath).toContain("2026-04-19");
     expect(files[1]?.relativePath).toContain("2026-04-20");
   });
 
   test("renders participant and attachment info", () => {
-    const files = renderConversationDays(makeConversation([
-      makeMessage(3, "2026-04-19T08:30:00-04:00", "hello there"),
-    ]));
+    const files = renderConversationDays(
+      makeConversation([makeMessage(3, "2026-04-19T08:30:00-04:00", "hello there")]),
+    );
     const content = files[0]?.content || "";
     expect(content).toContain("# Karissa");
     expect(content).toContain("Participants: Karissa");

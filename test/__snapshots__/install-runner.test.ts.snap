@@ -1,0 +1,136 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildPlist (real export from src/install.ts) > snapshot: plist is stable for known inputs 1`] = `
+"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>ai.aver.to.imessage-to-markdown</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/tmp/fixture-run-export.sh</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>CONFIG_PATH</key>
+      <string>/tmp/fixture-config.json</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>5</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/imessage-to-markdown.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/imessage-to-markdown.err</string>
+  </dict>
+</plist>
+"
+`;
+
+exports[`buildRunnerScript (real export from src/install.ts) > snapshot: runner script is stable for a known config path 1`] = `
+"#!/bin/zsh
+set -euo pipefail
+# launchd runs agents with a minimal PATH that does not include node, jq,
+# or Homebrew binaries. Export a PATH that covers both Apple Silicon and
+# Intel Homebrew prefixes so \`node\`, \`pmset\`, etc. resolve.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+CONFIG_PATH="/tmp/fixture-config.json"
+if [[ ! -f "$CONFIG_PATH" ]]; then
+  echo "Missing config: $CONFIG_PATH" >&2
+  exit 1
+fi
+node --input-type=module <<'EOF'
+import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+const config = JSON.parse(fs.readFileSync(process.env.CONFIG_PATH, "utf8"));
+if (config.acPowerOnly) {
+  const power = execFileSync("pmset", ["-g", "batt"], { encoding: "utf8" });
+  if (power.includes("Battery Power")) {
+    console.log("On battery power, skipping export");
+    process.exit(0);
+  }
+}
+process.chdir(config.repoDir);
+const sources = Array.isArray(config.enabledSources) && config.enabledSources.length > 0
+  ? config.enabledSources
+  : [config.source];
+// Exit-code contract with the CLI:
+//   0  = success (or no-op day with zero messages)
+//   75 = transient failure (DB locked, network blip) — keep going
+//   78 = permanent failure (auth revoked, config missing) — notify the user
+//   *  = unknown error — treat as permanent for safety
+let anyPermanent = false;
+let anyTransient = false;
+let successes = 0;
+const permanentSources = [];
+for (const source of sources) {
+  const sourceOutputDir = sources.length > 1 ? \`\${config.outputDir}/\${source}\` : config.outputDir;
+  const args = ["dist/cli.js", "--source", source, "--output-dir", sourceOutputDir, "--my-name", config.myName];
+  if (source === "imessage") {
+    args.push("--db-path", config.dbPath);
+    if (config.includeEmpty) args.push("--include-empty");
+  } else if (source === "telegram") {
+    if (config.telegramConfigDir) args.push("--telegram-config-dir", config.telegramConfigDir);
+  } else if (source === "whatsapp") {
+    if (config.whatsappDbPath) args.push("--whatsapp-db-path", config.whatsappDbPath);
+  } else if (source === "signal") {
+    if (config.signalDbPath) args.push("--signal-db-path", config.signalDbPath);
+    if (config.signalConfigPath) args.push("--signal-config-path", config.signalConfigPath);
+  } else if (config.exportPath) {
+    args.push("--export-path", config.exportPath);
+  }
+  try {
+    execFileSync("node", args, { stdio: "inherit" });
+    successes++;
+  } catch (err) {
+    const code = err && typeof err.status === "number" ? err.status : 1;
+    if (code === 75) {
+      anyTransient = true;
+      console.warn(\`[runner] \${source} transient failure (exit 75); will retry next tick\`);
+    } else {
+      anyPermanent = true;
+      permanentSources.push(source);
+      console.error(\`[runner] \${source} permanent failure (exit \${code}); user action required\`);
+    }
+  }
+}
+if (config.runQmdEmbed && config.qmdCommand) {
+  // Skip qmd-embed if every adapter failed this tick. Otherwise
+  // qmd-embed would process leftover/stale markdown from prior runs
+  // and mask the underlying adapter failure.
+  if (successes === 0) {
+    console.warn("[runner] all adapters failed this tick; skipping qmd-embed");
+  } else {
+    try {
+      execFileSync("bash", ["-lc", config.qmdCommand], { stdio: "inherit" });
+    } catch (err) {
+      anyPermanent = true;
+      permanentSources.push("qmd-embed");
+      console.error(\`[runner] qmd-embed failed: \${err && err.message}\`);
+    }
+  }
+}
+if (anyPermanent) {
+  try {
+    const msg = \`imessage-to-markdown: \${permanentSources.join(", ")} need attention\`;
+    execFileSync("osascript", ["-e", \`display notification "\${msg}" with title "imessage-to-markdown"\`], { stdio: "ignore" });
+  } catch {
+    // osascript failure is non-fatal — the nonzero exit still surfaces via launchd
+  }
+  process.exit(1);
+}
+if (anyTransient) {
+  // Propagate the transient signal so launchd's error stream records it,
+  // but distinguish from permanent via the 75 exit code.
+  process.exit(75);
+}
+EOF
+"
+`;

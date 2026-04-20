@@ -36,14 +36,14 @@ describe("normalizeHandle", () => {
  * generated schemas mirror the real macOS AddressBook-v22 tables for the
  * columns our reader touches -- every other column is skipped.
  */
-type FixtureContact = {
+interface FixtureContact {
   firstName?: string | null;
   lastName?: string | null;
   nickname?: string | null;
   organization?: string | null;
   phones?: string[];
   emails?: string[];
-};
+}
 
 function buildAbcddbSource(dbPath: string, contacts: FixtureContact[]): void {
   type DatabaseCtor = new (filename: string) => {
@@ -78,9 +78,7 @@ function buildAbcddbSource(dbPath: string, contacts: FixtureContact[]): void {
   const insertPhone = db.prepare(
     "INSERT INTO ZABCDPHONENUMBER (ZOWNER, ZFULLNUMBER) VALUES (?, ?)",
   );
-  const insertEmail = db.prepare(
-    "INSERT INTO ZABCDEMAILADDRESS (ZOWNER, ZADDRESS) VALUES (?, ?)",
-  );
+  const insertEmail = db.prepare("INSERT INTO ZABCDEMAILADDRESS (ZOWNER, ZADDRESS) VALUES (?, ?)");
   contacts.forEach((contact, index) => {
     const pk = index + 1;
     insertRec.run(
@@ -121,7 +119,12 @@ describe("loadFromAddressBookSQLite", () => {
 
   test("reads contacts from a single source and normalizes handles", async () => {
     makeSource("A-UUID", [
-      { firstName: "Tim", lastName: "Sharpe", phones: ["(912) 531-5244"], emails: ["Tim@Example.COM"] },
+      {
+        firstName: "Tim",
+        lastName: "Sharpe",
+        phones: ["(912) 531-5244"],
+        emails: ["Tim@Example.COM"],
+      },
       { firstName: "Dan", lastName: "Pohlig", phones: ["+1 570-555-1234"] },
       { organization: "Plains Vet Hospital", phones: ["5701234567"] },
       // Unnamed/empty record should be skipped.
@@ -187,9 +190,7 @@ describe("loadFromAddressBookSQLite", () => {
     }
 
     test("all sources succeed: skippedCount=0, no aggregate log", async () => {
-      makeSource("A-good", [
-        { firstName: "Tim", phones: ["+15705551111"] },
-      ]);
+      makeSource("A-good", [{ firstName: "Tim", phones: ["+15705551111"] }]);
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {

@@ -43,7 +43,12 @@ export interface TelegramMessageLike {
   fromId?: { userId?: string | number | bigint } | null;
   senderId?: string | number | bigint | null;
   media?: Api.TypeMessageMedia | null | unknown;
-  sender?: { firstName?: string | null; lastName?: string | null; username?: string | null; id?: unknown } | null;
+  sender?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    username?: string | null;
+    id?: unknown;
+  } | null;
 }
 
 export interface TelegramClientLike {
@@ -57,9 +62,11 @@ export interface TelegramClientLike {
   ): AsyncIterable<TelegramMessageLike>;
 }
 
-export interface TelegramClientFactory {
-  (apiId: number, apiHash: string, session: string): TelegramClientLike;
-}
+export type TelegramClientFactory = (
+  apiId: number,
+  apiHash: string,
+  session: string,
+) => TelegramClientLike;
 
 // Alias to gramjs's real FloodWaitError shape. Kept as a re-export so callers
 // (tests, runner) can narrow without importing gramjs themselves.
@@ -74,15 +81,18 @@ function isFloodWait(error: unknown): error is TelegramFloodWaitError {
   const seconds = typeof anyError.seconds === "number" ? anyError.seconds : undefined;
   return (
     seconds !== undefined &&
-    (name.includes("FloodWait") || errorMessage.includes("FLOOD_WAIT") || message.includes("FLOOD_WAIT"))
+    (name.includes("FloodWait") ||
+      errorMessage.includes("FLOOD_WAIT") ||
+      message.includes("FLOOD_WAIT"))
   );
 }
 
 function isAuthKeyUnregistered(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const anyError = error as Record<string, unknown>;
-  const fields = [anyError.errorMessage, anyError.message, anyError.name]
-    .filter((value): value is string => typeof value === "string");
+  const fields = [anyError.errorMessage, anyError.message, anyError.name].filter(
+    (value): value is string => typeof value === "string",
+  );
   return fields.some((value) => value.includes("AUTH_KEY_UNREGISTERED"));
 }
 
@@ -193,7 +203,11 @@ function messageText(message: TelegramMessageLike): string {
   return "";
 }
 
-async function defaultFactory(apiId: number, apiHash: string, session: string): Promise<TelegramClientLike> {
+async function defaultFactory(
+  apiId: number,
+  apiHash: string,
+  session: string,
+): Promise<TelegramClientLike> {
   const { TelegramClient } = await import("telegram");
   const { StringSession } = await import("telegram/sessions/index.js");
   const client = new TelegramClient(new StringSession(session), apiId, apiHash, {
@@ -206,21 +220,23 @@ export async function loadTelegramConversations(
   options: Record<string, unknown>,
   factory?: TelegramClientFactory | (() => Promise<TelegramClientLike>),
 ): Promise<NormalizedConversation[]> {
-  const configDir = expandHome(
-    String(options.telegramConfigDir || DEFAULT_TELEGRAM_CONFIG_DIR),
-  );
+  const configDir = expandHome(String(options.telegramConfigDir || DEFAULT_TELEGRAM_CONFIG_DIR));
   const myName = String(options.myName || "Me");
   const start = options.start instanceof Date ? (options.start as Date) : undefined;
   const end = options.end instanceof Date ? (options.end as Date) : undefined;
-  const dialogLimit = typeof options.telegramDialogLimit === "number" ? options.telegramDialogLimit : undefined;
-  const messageLimit = typeof options.telegramMessageLimit === "number" ? options.telegramMessageLimit : 1000;
+  const dialogLimit =
+    typeof options.telegramDialogLimit === "number" ? options.telegramDialogLimit : undefined;
+  const messageLimit =
+    typeof options.telegramMessageLimit === "number" ? options.telegramMessageLimit : 1000;
 
   const credentials = readCredentials(configDir);
   const session = readSession(configDir);
 
   const client = factory
     ? await (factory.length >= 3
-        ? Promise.resolve((factory as TelegramClientFactory)(credentials.apiId, credentials.apiHash, session))
+        ? Promise.resolve(
+            (factory as TelegramClientFactory)(credentials.apiId, credentials.apiHash, session),
+          )
         : (factory as () => Promise<TelegramClientLike>)())
     : await defaultFactory(credentials.apiId, credentials.apiHash, session);
 
@@ -244,7 +260,9 @@ export async function loadTelegramConversations(
       throw error;
     }
 
-    for await (const dialog of client.iterDialogs(dialogLimit ? { limit: dialogLimit } : undefined)) {
+    for await (const dialog of client.iterDialogs(
+      dialogLimit ? { limit: dialogLimit } : undefined,
+    )) {
       const dialogKey = String(dialog.id);
       const lastSeenId = Number(cursors[dialogKey] || 0);
       const messages: NormalizedMessage[] = [];
@@ -272,7 +290,10 @@ export async function loadTelegramConversations(
             }
             return batch;
           },
-          { onWait: (seconds) => console.warn(`FloodWait: sleeping ${seconds}s on dialog ${dialogKey}`) },
+          {
+            onWait: (seconds) =>
+              console.warn(`FloodWait: sleeping ${seconds}s on dialog ${dialogKey}`),
+          },
         );
         if (page.length === 0) break;
         collected.push(...page);

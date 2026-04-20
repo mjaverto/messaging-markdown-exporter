@@ -1,0 +1,10 @@
+dist
+node_modules
+coverage
+package-lock.json
+*.md
+
+# Temporarily excluded because another in-flight branch is actively editing
+# this file. Remove this exclusion once that branch lands so Prettier can
+# format contacts.ts alongside the rest of src/.
+src/contacts.ts

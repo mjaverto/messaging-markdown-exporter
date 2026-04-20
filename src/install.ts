@@ -16,13 +16,13 @@ const DEFAULT_OUTPUT_DIR = path.join(os.homedir(), "brain", "inbox", "messages")
 const DEFAULT_DB = path.join(os.homedir(), "Library", "Messages", "chat.db");
 const LABEL = "ai.aver.to.imessage-to-markdown";
 
-function buildRunnerScript(configPath: string): string {
+export function buildRunnerScript(configPath: string): string {
   return `#!/bin/zsh
 set -euo pipefail
 # launchd runs agents with a minimal PATH that does not include node, jq,
 # or Homebrew binaries. Export a PATH that covers both Apple Silicon and
 # Intel Homebrew prefixes so \`node\`, \`pmset\`, etc. resolve.
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 CONFIG_PATH=${JSON.stringify(configPath)}
 if [[ ! -f "$CONFIG_PATH" ]]; then
   echo "Missing config: $CONFIG_PATH" >&2
@@ -117,7 +117,12 @@ EOF
 `;
 }
 
-function buildPlist(scriptPath: string, configPath: string, hour: number, minute: number): string {
+export function buildPlist(
+  scriptPath: string,
+  configPath: string,
+  hour: number,
+  minute: number,
+): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -151,7 +156,11 @@ function buildPlist(scriptPath: string, configPath: string, hour: number, minute
 `;
 }
 
-function writeInstallFiles(config: AppConfig): { configPath: string; scriptPath: string; plistPath: string } {
+function writeInstallFiles(config: AppConfig): {
+  configPath: string;
+  scriptPath: string;
+  plistPath: string;
+} {
   fs.mkdirSync(config.installDir, { recursive: true });
   const configPath = path.join(config.installDir, "config.json");
   const scriptPath = path.join(config.installDir, "run-export.sh");
@@ -159,7 +168,10 @@ function writeInstallFiles(config: AppConfig): { configPath: string; scriptPath:
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   fs.writeFileSync(scriptPath, buildRunnerScript(configPath), { mode: 0o755 });
   fs.mkdirSync(path.dirname(plistPath), { recursive: true });
-  fs.writeFileSync(plistPath, buildPlist(scriptPath, configPath, config.scheduleHour, config.scheduleMinute));
+  fs.writeFileSync(
+    plistPath,
+    buildPlist(scriptPath, configPath, config.scheduleHour, config.scheduleMinute),
+  );
   return { configPath, scriptPath, plistPath };
 }
 
@@ -173,7 +185,9 @@ function loadLaunchAgent(plistPath: string): void {
   const domain = currentGuiDomain();
   try {
     execFileSync("launchctl", ["bootout", domain, plistPath], { stdio: "ignore" });
-  } catch {}
+  } catch {
+    // Ignore: the agent may not be loaded yet on a first install.
+  }
   execFileSync("launchctl", ["bootstrap", domain, plistPath], { stdio: "inherit" });
 }
 
@@ -181,7 +195,9 @@ function unloadLaunchAgent(plistPath: string): void {
   const domain = currentGuiDomain();
   try {
     execFileSync("launchctl", ["bootout", domain, plistPath], { stdio: "inherit" });
-  } catch {}
+  } catch {
+    // Ignore: the agent may already be unloaded; uninstall should be idempotent.
+  }
 }
 
 function buildConfig(input: {
@@ -239,7 +255,10 @@ async function resolveConfig(): Promise<AppConfig> {
   if (cli.uninstall) {
     const plistPath = path.join(os.homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
     unloadLaunchAgent(plistPath);
-    fs.rmSync(expandHome(String(cli.installDir || DEFAULT_INSTALL_DIR)), { recursive: true, force: true });
+    fs.rmSync(expandHome(String(cli.installDir || DEFAULT_INSTALL_DIR)), {
+      recursive: true,
+      force: true,
+    });
     fs.rmSync(plistPath, { force: true });
     console.log("Uninstalled imessage-to-markdown launchd job.");
     process.exit(0);
@@ -347,7 +366,10 @@ async function resolveConfig(): Promise<AppConfig> {
 export async function main(): Promise<void> {
   const config = await resolveConfig();
   const doctor = runDoctor({
-    sources: config.enabledSources && config.enabledSources.length > 0 ? config.enabledSources : [config.source],
+    sources:
+      config.enabledSources && config.enabledSources.length > 0
+        ? config.enabledSources
+        : [config.source],
     dbPath: config.dbPath,
     exportPath: config.exportPath,
     whatsappDbPath: config.whatsappDbPath,
@@ -364,7 +386,9 @@ export async function main(): Promise<void> {
   console.log(`Output dir: ${config.outputDir}`);
   if (config.exportPath) console.log(`Export path: ${config.exportPath}`);
   console.log(`Repo dir: ${config.repoDir}`);
-  console.log(`Schedule: ${String(config.scheduleHour).padStart(2, "0")}:${String(config.scheduleMinute).padStart(2, "0")}`);
+  console.log(
+    `Schedule: ${String(config.scheduleHour).padStart(2, "0")}:${String(config.scheduleMinute).padStart(2, "0")}`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

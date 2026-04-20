@@ -22,9 +22,7 @@ function parseDate(input: string | undefined, fallback: Date): Date {
 
 export async function main(argv = process.argv): Promise<void> {
   const program = new Command();
-  program
-    .name("imessage-to-markdown")
-    .description("Export multiple messaging sources to markdown");
+  program.name("imessage-to-markdown").description("Export multiple messaging sources to markdown");
 
   program
     .command("export", { isDefault: true })
@@ -32,8 +30,16 @@ export async function main(argv = process.argv): Promise<void> {
     .requiredOption("--source <name>", "Source adapter: imessage | telegram | whatsapp | signal")
     .option("--db-path <path>", "Path to iMessage chat.db", "~/Library/Messages/chat.db")
     .option("--export-path <path>", "Path to Telegram export")
-    .option("--signal-db-path <path>", "Path to Signal Desktop db.sqlite", "~/Library/Application Support/Signal/sql/db.sqlite")
-    .option("--signal-config-path <path>", "Path to Signal Desktop config.json", "~/Library/Application Support/Signal/config.json")
+    .option(
+      "--signal-db-path <path>",
+      "Path to Signal Desktop db.sqlite",
+      "~/Library/Application Support/Signal/sql/db.sqlite",
+    )
+    .option(
+      "--signal-config-path <path>",
+      "Path to Signal Desktop config.json",
+      "~/Library/Application Support/Signal/config.json",
+    )
     .option(
       "--whatsapp-db-path <path>",
       "Path to WhatsApp ChatStorage.sqlite",
@@ -47,7 +53,11 @@ export async function main(argv = process.argv): Promise<void> {
     .option("--include-empty", "Include empty messages with only metadata")
     .option("--no-contacts", "Skip Contacts.app lookup; do not resolve names")
     .option("--use-contact-names", "Use resolved contact names as filenames for 1:1 chats")
-    .option("--telegram-config-dir <path>", "Telegram config dir for credentials/session/cursors", DEFAULT_TELEGRAM_CONFIG_DIR)
+    .option(
+      "--telegram-config-dir <path>",
+      "Telegram config dir for credentials/session/cursors",
+      DEFAULT_TELEGRAM_CONFIG_DIR,
+    )
     .action(async (options: Record<string, unknown>) => {
       const end = parseDate(options.end as string | undefined, new Date());
       const start = parseDate(
@@ -74,7 +84,8 @@ export async function main(argv = process.argv): Promise<void> {
 
       console.log(`Wrote ${result.filesWritten} file(s).`);
       for (const out of result.outputPaths.slice(0, 20)) console.log(out);
-      if (result.outputPaths.length > 20) console.log(`...and ${result.outputPaths.length - 20} more`);
+      if (result.outputPaths.length > 20)
+        console.log(`...and ${result.outputPaths.length - 20} more`);
     });
 
   program

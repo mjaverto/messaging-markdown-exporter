@@ -48,11 +48,13 @@ interface MessageRow {
 }
 
 function conversationTitle(row: ConversationRow): string {
-  return row.name?.trim()
-    || row.profileFullName?.trim()
-    || row.e164?.trim()
-    || row.serviceId?.trim()
-    || row.id;
+  return (
+    row.name?.trim() ||
+    row.profileFullName?.trim() ||
+    row.e164?.trim() ||
+    row.serviceId?.trim() ||
+    row.id
+  );
 }
 
 function withReadableDbCopy<T>(dbPath: string, fn: (safeDbPath: string) => T): T {
@@ -98,7 +100,10 @@ type SignalDatabaseCtor = new (
   close: () => void;
 };
 
-function openSignalDatabase(dbPath: string, configPath: string): {
+function openSignalDatabase(
+  dbPath: string,
+  configPath: string,
+): {
   all: <T>(sql: string, params?: unknown[]) => T[];
   close: () => void;
 } {
@@ -138,7 +143,9 @@ export const signalAdapter: ExportAdapter = {
   source: "signal",
   async loadConversations(options): Promise<NormalizedConversation[]> {
     const dbPath = options.signalDbPath ? String(options.signalDbPath) : DEFAULT_DB_PATH;
-    const configPath = options.signalConfigPath ? String(options.signalConfigPath) : DEFAULT_CONFIG_PATH;
+    const configPath = options.signalConfigPath
+      ? String(options.signalConfigPath)
+      : DEFAULT_CONFIG_PATH;
     const myName = String(options.myName || "Me");
     const start = options.start instanceof Date ? options.start : new Date(0);
     const end = options.end instanceof Date ? options.end : new Date();
@@ -174,60 +181,60 @@ function readAll(
   myName: string,
 ): NormalizedConversation[] {
   try {
-      // Signal renamed profile columns a few times; probe pragma to stay
-      // compatible across versions without hard-failing on older installs.
-      const columns = db.all<{ name: string }>("PRAGMA table_info(conversations);");
-      const hasProfileFullName = columns.some((c) => c.name === "profileFullName");
+    // Signal renamed profile columns a few times; probe pragma to stay
+    // compatible across versions without hard-failing on older installs.
+    const columns = db.all<{ name: string }>("PRAGMA table_info(conversations);");
+    const hasProfileFullName = columns.some((c) => c.name === "profileFullName");
 
-      const conversationRows = db.all<ConversationRow>(
-        `SELECT ${selectConversationColumns(hasProfileFullName)} FROM conversations;`,
-      );
-      const conversations = new Map<string, NormalizedConversation>();
-      for (const row of conversationRows) {
-        const participants = [row.e164, row.serviceId, row.profileFullName, row.name]
-          .map((v) => (v ?? "").toString().trim())
-          .filter(Boolean);
-        conversations.set(row.id, {
-          source: "signal",
-          conversationId: row.id,
-          title: conversationTitle(row),
-          participants,
-          messages: [],
-          chatId: row.id,
-          service: "Signal",
-        });
-      }
+    const conversationRows = db.all<ConversationRow>(
+      `SELECT ${selectConversationColumns(hasProfileFullName)} FROM conversations;`,
+    );
+    const conversations = new Map<string, NormalizedConversation>();
+    for (const row of conversationRows) {
+      const participants = [row.e164, row.serviceId, row.profileFullName, row.name]
+        .map((v) => (v ?? "").toString().trim())
+        .filter(Boolean);
+      conversations.set(row.id, {
+        source: "signal",
+        conversationId: row.id,
+        title: conversationTitle(row),
+        participants,
+        messages: [],
+        chatId: row.id,
+        service: "Signal",
+      });
+    }
 
-      const messageRows = db.all<MessageRow>(
-        `SELECT id, conversationId, source, sent_at, received_at, body, type, hasAttachments
+    const messageRows = db.all<MessageRow>(
+      `SELECT id, conversationId, source, sent_at, received_at, body, type, hasAttachments
          FROM messages
          WHERE type IN ('outgoing', 'incoming')
            AND (sent_at IS NULL OR (sent_at >= ? AND sent_at < ?))
          ORDER BY COALESCE(sent_at, received_at) ASC;`,
-        [start.getTime(), end.getTime()],
-      );
+      [start.getTime(), end.getTime()],
+    );
 
-      for (const row of messageRows) {
-        const convo = conversations.get(row.conversationId);
-        if (!convo) continue;
-        const text = (row.body ?? "").trim();
-        const hadAttachments = Number(row.hasAttachments ?? 0) === 1;
-        if (!includeEmpty && !text && !hadAttachments) continue;
-        // Signal denormalizes direction into the `type` column rather than a
-        // dedicated flag; `outgoing` = sent by this user, `incoming` = received.
-        const isFromMe = row.type === "outgoing";
-        const ts = Number(row.sent_at ?? row.received_at ?? 0);
-        const message: NormalizedMessage = {
-          id: String(row.id),
-          timestamp: new Date(ts),
-          sender: isFromMe ? myName : (row.source ?? "Unknown"),
-          text,
-          isFromMe,
-          hadAttachments,
-          metadata: row.type ? { type: row.type } : undefined,
-        };
-        convo.messages.push(message);
-      }
+    for (const row of messageRows) {
+      const convo = conversations.get(row.conversationId);
+      if (!convo) continue;
+      const text = (row.body ?? "").trim();
+      const hadAttachments = Number(row.hasAttachments ?? 0) === 1;
+      if (!includeEmpty && !text && !hadAttachments) continue;
+      // Signal denormalizes direction into the `type` column rather than a
+      // dedicated flag; `outgoing` = sent by this user, `incoming` = received.
+      const isFromMe = row.type === "outgoing";
+      const ts = Number(row.sent_at ?? row.received_at ?? 0);
+      const message: NormalizedMessage = {
+        id: String(row.id),
+        timestamp: new Date(ts),
+        sender: isFromMe ? myName : (row.source ?? "Unknown"),
+        text,
+        isFromMe,
+        hadAttachments,
+        metadata: row.type ? { type: row.type } : undefined,
+      };
+      convo.messages.push(message);
+    }
 
     // Drop conversations that ended up empty after date filtering.
     return [...conversations.values()].filter((c) => c.messages.length > 0);

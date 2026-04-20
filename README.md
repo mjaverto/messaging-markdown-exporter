@@ -1,5 +1,9 @@
 # Messaging Markdown Exporter
 
+[![CI](https://github.com/mjaverto/imessage-to-markdown/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mjaverto/imessage-to-markdown/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/messaging-markdown-exporter.svg)](https://www.npmjs.com/package/messaging-markdown-exporter)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 Export conversations from multiple messaging apps into a shared markdown format.
 
 ## Supported sources
@@ -257,6 +261,19 @@ npm test
 npm run lint
 ```
 
+### Coverage thresholds
+
+`npm test` (via `vitest.config.ts`) enforces minimum coverage:
+
+| Metric     | Floor |
+|------------|------:|
+| Lines      |  75%  |
+| Statements |  75%  |
+| Functions  |  75%  |
+| Branches   |  70%  |
+
+The floors are set below current coverage so normal churn doesn't turn CI red, but a sudden drop (e.g. an entire adapter losing its tests) will. Raise these as coverage climbs — check current numbers with `npx vitest run --coverage`.
+
 ## Current limitations
 
 - Attachment handling is still simplified across all sources — the markdown
@@ -270,6 +287,35 @@ npm run lint
 - Signal: requires Signal Desktop to be quit at the moment of read
   (SQLite write-locks the DB). Scheduled runs during an active Signal
   session will soft-fail with a warning.
+
+## Releasing
+
+Releases are fully automated. Every merge to `main` triggers `.github/workflows/release.yml`, which:
+
+1. Runs lint, build, and tests as a gate.
+2. Bumps the patch version (`npm version patch`) and commits as `chore(release): vX.Y.Z [skip ci]`.
+3. Tags `vX.Y.Z` and pushes the commit + tag back to `main`.
+4. Publishes to npm as `messaging-markdown-exporter` with [provenance](https://docs.npmjs.com/generating-provenance-statements).
+5. Creates a GitHub Release with auto-generated notes.
+
+The `[skip ci]` token on the release commit prevents the workflow from re-triggering itself.
+
+### Manual minor / major bumps
+
+The workflow only does patch bumps. For a minor or major release, bump the version locally on a normal commit (`npm version minor` / `npm version major --no-git-tag-version`, commit, push). The release workflow will then patch on top of that on the next merge — so prefer to land the version bump in a release-only PR if you want the resulting tag to match exactly.
+
+### npm authentication
+
+Two paths are supported; pick one and configure it in the GitHub repo:
+
+- **OIDC trusted publishing (recommended).** No secret needed. Configure `messaging-markdown-exporter` on npmjs.com with this repo + workflow as a trusted publisher. The workflow already requests `id-token: write` and passes `--provenance`. See: https://docs.npmjs.com/trusted-publishers
+- **Long-lived `NPM_TOKEN` (fallback).** Add an automation token as repo secret `NPM_TOKEN`. The workflow reads it via `NODE_AUTH_TOKEN`.
+
+If neither is configured, the publish step will fail (the rest of the workflow up to that point still runs).
+
+### Branch protection
+
+After CI lands, enable branch protection on `main` and require the `Lint, Build, Test` check to pass before merge.
 
 ## License
 

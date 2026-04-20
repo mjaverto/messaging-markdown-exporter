@@ -17,7 +17,11 @@ const SALT = "saltysalt";
 const ITERATIONS = 1003;
 const IV = Buffer.alloc(16, 0x20);
 
-function encryptEncryptedKey(plainHexKey: string, keychainPassword: string, magic: "v10" | "v11"): string {
+function encryptEncryptedKey(
+  plainHexKey: string,
+  keychainPassword: string,
+  magic: "v10" | "v11",
+): string {
   const derived = crypto.pbkdf2Sync(keychainPassword, SALT, ITERATIONS, 16, "sha1");
   const cipher = crypto.createCipheriv("aes-128-cbc", derived, IV);
   const ciphertext = Buffer.concat([cipher.update(plainHexKey, "utf8"), cipher.final()]);

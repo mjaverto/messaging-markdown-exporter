@@ -19,8 +19,8 @@ const fixtures = path.join(process.cwd(), "test", "fixtures");
 function makeClient(
   dialogs: TelegramDialogLike[],
   messagesByDialog: Record<string, TelegramMessageLike[]>,
-): TelegramClientLike & { iterMessageCalls: Array<{ dialog: string; minId?: number }> } {
-  const iterMessageCalls: Array<{ dialog: string; minId?: number }> = [];
+): TelegramClientLike & { iterMessageCalls: { dialog: string; minId?: number }[] } {
+  const iterMessageCalls: { dialog: string; minId?: number }[] = [];
   return {
     iterMessageCalls,
     async connect() {},
@@ -47,7 +47,10 @@ describe("telegram adapter", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tg-adapter-"));
-    fs.writeFileSync(path.join(tmpDir, "credentials.json"), JSON.stringify({ apiId: 1, apiHash: "abcdef0123456789" }));
+    fs.writeFileSync(
+      path.join(tmpDir, "credentials.json"),
+      JSON.stringify({ apiId: 1, apiHash: "abcdef0123456789" }),
+    );
     fs.writeFileSync(path.join(tmpDir, "session.txt"), "fake-session");
   });
 
@@ -123,7 +126,11 @@ describe("telegram adapter", () => {
         }
         return "ok";
       },
-      { sleepFn: async (ms) => { sleeps.push(ms); } },
+      {
+        sleepFn: async (ms) => {
+          sleeps.push(ms);
+        },
+      },
     );
 
     expect(result).toBe("ok");
@@ -138,7 +145,11 @@ describe("telegram adapter", () => {
         async () => {
           throw new Error("network down");
         },
-        { sleepFn: async (ms) => { sleeps.push(ms); } },
+        {
+          sleepFn: async (ms) => {
+            sleeps.push(ms);
+          },
+        },
       ),
     ).rejects.toThrow("network down");
     expect(sleeps).toHaveLength(0);
@@ -172,4 +183,3 @@ describe("whatsapp adapter", () => {
     expect(group?.messages[0]?.sender).toBe("Aunt Jane");
   });
 });
-

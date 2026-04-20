@@ -11,6 +11,17 @@ export interface TelegramLoginOptions {
 }
 
 export async function telegramLogin(options: TelegramLoginOptions = {}): Promise<void> {
+  // `prompts` silently returns (or hangs) without calling onCancel when
+  // stdin isn't a TTY, so Node can exit 0 before we realize no creds were
+  // collected. Bail out loudly before touching the filesystem so automated
+  // contexts get a clear non-zero exit.
+  if (!process.stdin.isTTY) {
+    console.error(
+      "telegram-login: stdin is not a TTY. This command is interactive; run it from a terminal.",
+    );
+    process.exit(1);
+  }
+
   const configDir = expandHome(options.telegramConfigDir || DEFAULT_TELEGRAM_CONFIG_DIR);
   fs.mkdirSync(configDir, { recursive: true });
 
@@ -28,24 +39,37 @@ export async function telegramLogin(options: TelegramLoginOptions = {}): Promise
         name: "apiId",
         message: "Telegram apiId (from my.telegram.org)",
         initial: existingCreds.apiId,
-        validate: (value: number) => (Number.isFinite(value) && value > 0 ? true : "Enter a positive integer"),
+        validate: (value: number) =>
+          Number.isFinite(value) && value > 0 ? true : "Enter a positive integer",
       },
       {
         type: "text",
         name: "apiHash",
         message: "Telegram apiHash",
         initial: existingCreds.apiHash,
-        validate: (value: string) => (value && value.length >= 16 ? true : "apiHash looks too short"),
+        validate: (value: string) =>
+          value && value.length >= 16 ? true : "apiHash looks too short",
       },
       {
         type: "text",
         name: "phone",
         message: "Phone number (e.g. +15555551234)",
-        validate: (value: string) => (/^\+?\d{6,}$/.test(value) ? true : "Enter a phone number in international format"),
+        validate: (value: string) =>
+          /^\+?\d{6,}$/.test(value) ? true : "Enter a phone number in international format",
       },
     ],
     { onCancel: () => process.exit(1) },
   );
+
+  // `prompts` silently returns an incomplete object when stdin closes before
+  // all three answers come in (e.g. non-TTY / piped empty stdin). Guard here
+  // so we exit non-zero instead of constructing a TelegramClient with NaN.
+  if (!Number.isFinite(Number(responses.apiId)) || !responses.apiHash || !responses.phone) {
+    console.error(
+      "telegram-login: missing apiId / apiHash / phone — an interactive TTY is required.",
+    );
+    process.exit(1);
+  }
 
   const apiId = Number(responses.apiId);
   const apiHash = String(responses.apiHash);
@@ -98,5 +122,7 @@ export async function telegramLogin(options: TelegramLoginOptions = {}): Promise
   console.log(`\n✅ Telegram login complete.`);
   console.log(`   Credentials saved to: ${credsPath}`);
   console.log(`   Session saved to:     ${sessionPath}`);
-  console.log(`\nNext: run 'imessage-to-markdown --source telegram' (or schedule it) for unattended exports.`);
+  console.log(
+    `\nNext: run 'imessage-to-markdown --source telegram' (or schedule it) for unattended exports.`,
+  );
 }

@@ -13,7 +13,8 @@ import {
 } from "../core/model.js";
 
 const APPLE_EPOCH_OFFSET_SECONDS = 978_307_200;
-const DEFAULT_DB_PATH = "~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite";
+const DEFAULT_DB_PATH =
+  "~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite";
 
 export { DEFAULT_DB_PATH as WHATSAPP_DEFAULT_DB_PATH };
 
@@ -79,11 +80,9 @@ function copyDbForRead(dbPath: string): { safeDb: string; cleanup: () => void } 
   // the snapshot contains a WAL that references pages the main DB doesn't
   // have, and opening it throws "database disk image is malformed".
   try {
-    execFileSync(
-      "sqlite3",
-      [dbPath, `VACUUM INTO '${safeDb.replace(/'/g, "''")}'`],
-      { stdio: ["ignore", "ignore", "pipe"] },
-    );
+    execFileSync("sqlite3", [dbPath, `VACUUM INTO '${safeDb.replace(/'/g, "''")}'`], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/locked|busy/i.test(message)) {
@@ -175,7 +174,8 @@ function resolveSender(
     if (resolved && resolved !== parsed.user) return resolved;
   }
 
-  if (row.group_member_firstname && row.group_member_firstname.trim()) return row.group_member_firstname.trim();
+  if (row.group_member_firstname && row.group_member_firstname.trim())
+    return row.group_member_firstname.trim();
 
   return parsed.user || senderJidRaw || "Unknown";
 }
@@ -186,7 +186,9 @@ export const whatsappAdapter: ExportAdapter = {
     const dbPath = String(options.whatsappDbPath || options.dbPath || "");
     if (!dbPath) throw new Error("WhatsApp adapter: dbPath is required");
     if (!fs.existsSync(dbPath)) {
-      console.error(`[whatsapp] Database not found at ${dbPath}. WhatsApp Desktop must be installed and FDA granted.`);
+      console.error(
+        `[whatsapp] Database not found at ${dbPath}. WhatsApp Desktop must be installed and FDA granted.`,
+      );
       process.exit(1);
     }
 
@@ -273,11 +275,13 @@ export const whatsappAdapter: ExportAdapter = {
           if (!Number(row.is_from_me)) participantSet.add(sender);
 
           const attachments: NormalizedAttachment[] | undefined = hasMedia
-            ? [{
-                path: mediaPath || undefined,
-                name: mediaPath ? path.basename(mediaPath) : undefined,
-                kind: kindFromMediaPath(mediaPath),
-              }]
+            ? [
+                {
+                  path: mediaPath || undefined,
+                  name: mediaPath ? path.basename(mediaPath) : undefined,
+                  kind: kindFromMediaPath(mediaPath),
+                },
+              ]
             : undefined;
 
           normalizedMessages.push({
@@ -296,7 +300,7 @@ export const whatsappAdapter: ExportAdapter = {
         const parsedChat = parseJid(chat.contact_jid);
         const fallbackTitle = parsedChat.isGroup
           ? `Group ${chat.contact_jid}`
-          : (parsedChat.user || chat.contact_jid || `Chat ${chat.chat_pk}`);
+          : parsedChat.user || chat.contact_jid || `Chat ${chat.chat_pk}`;
         const title = (chat.partner_name && chat.partner_name.trim()) || fallbackTitle;
 
         conversations.push({

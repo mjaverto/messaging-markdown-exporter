@@ -6,8 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("node:child_process", async () => {
-  const actual =
-    await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
   return {
     ...actual,
     execFileSync: vi.fn(),
@@ -19,12 +18,12 @@ import { _resetContactsCacheForTests, loadContactsMap } from "../src/contacts.js
 
 const nativeRequire = createRequire(import.meta.url);
 
-type FixtureContact = {
+interface FixtureContact {
   firstName?: string | null;
   lastName?: string | null;
   phones?: string[];
   emails?: string[];
-};
+}
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE ZABCDRECORD (
@@ -62,18 +61,10 @@ function buildAbcddbSource(dbPath: string, contacts: FixtureContact[]): void {
   const insertPhone = db.prepare(
     "INSERT INTO ZABCDPHONENUMBER (ZOWNER, ZFULLNUMBER) VALUES (?, ?)",
   );
-  const insertEmail = db.prepare(
-    "INSERT INTO ZABCDEMAILADDRESS (ZOWNER, ZADDRESS) VALUES (?, ?)",
-  );
+  const insertEmail = db.prepare("INSERT INTO ZABCDEMAILADDRESS (ZOWNER, ZADDRESS) VALUES (?, ?)");
   contacts.forEach((contact, index) => {
     const pk = index + 1;
-    insertRec.run(
-      pk,
-      contact.firstName ?? null,
-      contact.lastName ?? null,
-      null,
-      null,
-    );
+    insertRec.run(pk, contact.firstName ?? null, contact.lastName ?? null, null, null);
     for (const phone of contact.phones ?? []) insertPhone.run(pk, phone);
     for (const email of contact.emails ?? []) insertEmail.run(pk, email);
   });
