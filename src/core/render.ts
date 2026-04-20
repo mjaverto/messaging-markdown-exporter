@@ -60,6 +60,9 @@ export function renderFrontmatter(frontmatter: ChatFrontmatter): string {
   lines.push(`first_message: ${frontmatter.firstMessage}`);
   lines.push(`last_message: ${frontmatter.lastMessage}`);
   lines.push(`exported_at: ${frontmatter.exportedAt}`);
+  if (frontmatter.contactsResolved === false) {
+    lines.push("contacts_resolved: false");
+  }
   lines.push("---");
   return lines.join("\n");
 }
@@ -101,6 +104,14 @@ function buildFrontmatter(
     frontmatter.contact = resolvedParticipants[0] || handles[0] || conversation.title;
   } else if (resolvedParticipants.length > 0) {
     frontmatter.participants = resolvedParticipants;
+  }
+
+  // Mark exports where contact resolution was attempted but the map came
+  // back empty. We only emit this when contacts is a Map (i.e. resolution
+  // was requested for this source) -- if contacts is undefined the caller
+  // opted out and the raw handles are intentional.
+  if (contacts && contacts.size === 0) {
+    frontmatter.contactsResolved = false;
   }
 
   return frontmatter;

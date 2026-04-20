@@ -98,4 +98,11 @@ export interface ChatFrontmatter {
   firstMessage: string;
   lastMessage: string;
   exportedAt: string;
+  /**
+   * Emitted only when contacts resolution was attempted but yielded an
+   * empty map (both AddressBook SQLite and JXA paths failed). Downstream
+   * tooling can use this to flag exports where raw handles render in
+   * place of names instead of silently treating phone numbers as canonical.
+   */
+  contactsResolved?: boolean;
 }

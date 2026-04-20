@@ -107,18 +107,34 @@ location.
 
 ## Contacts integration (iMessage)
 
-For the `imessage` source, the exporter dumps Contacts.app once per run via
-JXA and resolves chat handles (phone numbers, emails) to display names. The
-resolved name is used in the markdown header, message senders, and the YAML
+For the `imessage` source, the exporter resolves chat handles (phone
+numbers, emails) to display names before writing markdown. The resolved
+name is used in the markdown header, message senders, and the YAML
 frontmatter.
 
-The first run will trigger a Contacts permission prompt for the binary
-running `osascript` (your terminal app, or the launchd-spawning process).
-If access is denied or unavailable, the exporter logs a one-line warning
-and falls back to raw handles -- exports still succeed.
+Resolution strategy (in order):
 
-Phone numbers are normalized to the last 10 digits for matching (US-centric;
-documented tradeoff). Emails are lowercased and trimmed.
+1. **Direct AddressBook SQLite read (preferred).** The exporter reads
+   every `AddressBook-v22.abcddb` under
+   `~/Library/Application Support/AddressBook/Sources/<UUID>/` via
+   `better-sqlite3-multiple-ciphers`. No Apple Events / Automation grant
+   required -- only Full Disk Access, which the launchd runner already
+   needs to read `chat.db`. This path is fast and works under `launchd`
+   where JXA/osascript reliably fails with Apple Events error `-1743`
+   (`errAEEventNotPermitted`).
+2. **JXA via `osascript` (fallback).** If the SQLite path finds zero
+   contacts (sources dir missing, schema change, custom Contacts setup
+   on a network mount), the exporter falls back to the legacy JXA dump.
+   This triggers a Contacts permission prompt the first time and only
+   works from a context that has the Automation -> Contacts grant.
+3. **Raw handles.** If both paths fail, the exporter logs a one-line
+   warning and uses raw handles in the output -- exports still succeed.
+
+Phone numbers are normalized to the last 10 digits for matching
+(US-centric; documented tradeoff). Emails are lowercased and trimmed.
+Handles present in multiple AddressBook sources are resolved with
+first-writer-wins semantics using alphabetical source-directory order,
+which is deterministic across runs.
 
 ### Flags
 
@@ -144,11 +160,21 @@ message_count: 12
 first_message: 2026-04-19T12:30:00.000Z
 last_message: 2026-04-19T18:45:00.000Z
 exported_at: 2026-04-19T19:30:00.000Z
+contacts_resolved: false          # only when contacts lookup was attempted and empty
 ---
 ```
 
 Downstream tooling (Obsidian, Dataview, custom indexers) can rely on the
 shape above being stable across sources.
+
+`contacts_resolved: false` is emitted **only** when contacts resolution
+was requested for the source (i.e. `--no-contacts` was not passed and
+the source is one that uses Contacts.app, currently `imessage` and
+`whatsapp`) **and** the resolved map came back empty (both AddressBook
+SQLite and JXA fallback failed). Use it to flag exports where raw phone
+numbers / emails appear in place of names so downstream indexers do not
+treat handles as canonical contact identities. The field is omitted on
+successful resolution and on `--no-contacts` runs.
 
 ## Installer
 
@@ -199,7 +225,9 @@ node dist/install.js --uninstall
 ### iMessage
 - direct `chat.db` reads via the `sqlite3` CLI + tmpdir copy
 - attributed-body cleanup is heuristic, not perfect
-- Contacts.app integration resolves phone numbers and emails to display names
+- Contacts resolution reads the AddressBook `.abcddb` SQLite files
+  directly (no Automation / Apple Events grant required); JXA remains
+  as a fallback for non-standard setups
 
 ### Telegram
 - uses MTProto (gramjs `TelegramClient`) with a persistent `StringSession`

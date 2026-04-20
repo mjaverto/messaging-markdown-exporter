@@ -114,6 +114,32 @@ describe("renderConversationDays — useContactNames", () => {
   });
 });
 
+describe("renderConversationDays — contacts_resolved marker", () => {
+  test("emits contacts_resolved: false when contacts map was attempted but empty", () => {
+    const files = renderConversationDays(makeConversation({}), {
+      contacts: new Map(),
+      exportedAt: new Date("2026-04-19T19:30:00Z"),
+    });
+    expect(files[0]!.content).toContain("contacts_resolved: false");
+  });
+
+  test("omits contacts_resolved when contacts resolved to a non-empty map", () => {
+    const contacts = new Map<string, string>([["5702416510", "Karissa Smith"]]);
+    const files = renderConversationDays(makeConversation({}), {
+      contacts,
+      exportedAt: new Date("2026-04-19T19:30:00Z"),
+    });
+    expect(files[0]!.content).not.toContain("contacts_resolved");
+  });
+
+  test("omits contacts_resolved when contacts resolution was opted out (undefined)", () => {
+    const files = renderConversationDays(makeConversation({}), {
+      exportedAt: new Date("2026-04-19T19:30:00Z"),
+    });
+    expect(files[0]!.content).not.toContain("contacts_resolved");
+  });
+});
+
 describe("renderFrontmatter", () => {
   test("escapes quotes in contact names", () => {
     const fm: ChatFrontmatter = {
