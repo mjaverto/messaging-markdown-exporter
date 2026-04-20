@@ -267,9 +267,17 @@ describe("CLI E2E — telegram error cases", () => {
       cwd: ROOT,
       timeout: 10000,
     });
-    // Either it exits non-zero or produces an error message
-    // We just verify it doesn't hang indefinitely (timeout would throw)
-    expect(result.status !== undefined || result.error !== undefined).toBe(true);
+    // The command must fail (non-zero exit) when stdin is closed — the
+    // previous `status !== undefined || error !== undefined` assertion
+    // was tautological. `timeout` spawn errors also surface here; both
+    // the explicit non-zero status and the timeout-error cases are
+    // acceptable failures.
+    if (result.error) {
+      expect(result.error).toBeInstanceOf(Error);
+    } else {
+      expect(result.status).not.toBe(0);
+      expect(result.status).not.toBeNull();
+    }
   });
 });
 
