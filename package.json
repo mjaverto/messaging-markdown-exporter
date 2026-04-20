@@ -2,6 +2,14 @@
   "name": "messaging-markdown-exporter",
   "version": "0.3.2",
   "description": "Export iMessage, Telegram, WhatsApp, and Signal conversations into a shared markdown format",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mjaverto/messaging-markdown-exporter.git"
+  },
+  "homepage": "https://github.com/mjaverto/messaging-markdown-exporter#readme",
+  "bugs": {
+    "url": "https://github.com/mjaverto/messaging-markdown-exporter/issues"
+  },
   "type": "module",
   "bin": {
     "messaging-markdown-exporter": "dist/cli.js",
