@@ -284,13 +284,54 @@ export function loadFromAddressBookSQLite(options: { sourcesDir?: string } = {})
 }
 
 /**
- * Dump the macOS Contacts database via JXA into a normalized lookup map.
+ * Fallback: dump the macOS Contacts database via JXA into a normalized
+ * lookup map.
  *
- * The first run will trigger a Contacts permission prompt for whichever
- * binary is invoking `osascript` (the parent terminal app, or the launchd
- * spawning process). If access is denied or any error occurs the function
- * logs a warning to stderr and returns an empty map — callers are expected
- * to fall back to the raw handle.
+ * This path requires the Automation -> Contacts grant for whichever
+ * binary is invoking `osascript`. Under a launchd-spawned context Apple
+ * Events are routinely denied with `-1743` / `ETIMEDOUT`, which is why
+ * `loadFromAddressBookSQLite` is tried first and this function is a
+ * fallback for non-standard setups (e.g. Contacts data on a network
+ * mount the sqlite path can't reach).
+ */
+export function loadFromJXA(options: { timeoutMs?: number } = {}): ContactsMap {
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  const map: ContactsMap = new Map();
+  const stdout = execFileSync("osascript", ["-l", "JavaScript", "-e", JXA_SCRIPT], {
+    encoding: "utf8",
+    timeout: timeoutMs,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const records = JSON.parse(stdout) as RawContact[];
+  for (const record of records) {
+    const name = (record.name || "").trim();
+    if (!name) continue;
+    for (const phone of record.phones || []) {
+      const k = normalizeHandle(phone);
+      if (k && !map.has(k)) map.set(k, name);
+    }
+    for (const email of record.emails || []) {
+      const k = normalizeHandle(email);
+      if (k && !map.has(k)) map.set(k, name);
+    }
+  }
+  return map;
+}
+
+/**
+ * Load the macOS Contacts database into a normalized lookup map, trying
+ * the fast SQLite path first and falling back to JXA/osascript on
+ * failure.
+ *
+ * Strategy:
+ *   1. Read every `AddressBook-v22.abcddb` under the Sources directory
+ *      directly via better-sqlite3-multiple-ciphers. Works under launchd
+ *      because it only needs FDA, not the Automation -> Contacts grant.
+ *   2. If that yields zero contacts (no sources dir, custom setup,
+ *      schema change), fall back to the legacy JXA dump.
+ *   3. If JXA also fails (launchd Apple Events denial, Contacts.app not
+ *      installed), log a warning and return an empty map. Callers are
+ *      expected to fall back to raw handles.
  *
  * The result is cached for the lifetime of the process keyed on the
  * timeout knob so repeat calls during the same export are free.
@@ -300,34 +341,36 @@ export async function loadContactsMap(options: { timeoutMs?: number } = {}): Pro
   const key = `t=${timeoutMs}`;
   if (cached && cacheKey === key) return cached;
 
-  const map: ContactsMap = new Map();
+  // Step 1: fast, permission-friendly SQLite path.
   try {
-    const stdout = execFileSync("osascript", ["-l", "JavaScript", "-e", JXA_SCRIPT], {
-      encoding: "utf8",
-      timeout: timeoutMs,
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    const records = JSON.parse(stdout) as RawContact[];
-    for (const record of records) {
-      const name = (record.name || "").trim();
-      if (!name) continue;
-      for (const phone of record.phones || []) {
-        const k = normalizeHandle(phone);
-        if (k && !map.has(k)) map.set(k, name);
-      }
-      for (const email of record.emails || []) {
-        const k = normalizeHandle(email);
-        if (k && !map.has(k)) map.set(k, name);
-      }
+    const result = loadFromAddressBookSQLite();
+    if (result && result.map.size > 0) {
+      console.log(`[contacts] Loaded ${result.map.size} contacts from AddressBook SQLite (${result.sourceCount} sources).`);
+      cached = result.map;
+      cacheKey = key;
+      return result.map;
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[contacts] AddressBook SQLite read failed (${message}); falling back to JXA.`);
+  }
+
+  // Step 2: legacy JXA fallback.
+  try {
+    const jxaMap = loadFromJXA({ timeoutMs });
+    console.log(`[contacts] Loaded ${jxaMap.size} contacts from Contacts.app via JXA (fallback).`);
+    cached = jxaMap;
+    cacheKey = key;
+    return jxaMap;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[contacts] Could not read Contacts.app via JXA (${message}). Falling back to raw handles.`);
   }
 
-  cached = map;
+  const empty: ContactsMap = new Map();
+  cached = empty;
   cacheKey = key;
-  return map;
+  return empty;
 }
 
 /**
