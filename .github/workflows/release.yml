@@ -55,7 +55,10 @@ jobs:
           node-version: "20"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
-          always-auth: true
+
+      - name: Upgrade npm to latest (required for OIDC trusted publishing)
+        if: steps.skip_check.outputs.skip != 'true'
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         if: steps.skip_check.outputs.skip != 'true'
@@ -134,8 +137,6 @@ jobs:
 
       - name: Publish to npm (OIDC trusted publisher, with provenance)
         if: steps.skip_check.outputs.skip != 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           # Prefers npm OIDC trusted publishing when configured on npmjs.com.
           # Falls back to NPM_TOKEN auth if a token is present in the env.
