@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type { Api } from "telegram";
+import type { FloodWaitError } from "telegram/errors";
+
 import {
   ExportAdapter,
   NormalizedConversation,
@@ -27,6 +30,10 @@ export interface TelegramDialogLike {
   isChannel?: boolean;
 }
 
+// Structural subset of gramjs Api.Message / Api.User — the real runtime type
+// is Api.Message, but we only consume these fields and want to allow fakes
+// in tests without dragging gramjs into the test graph. `satisfies`-style
+// alignment is enforced below via the `_telegramMessageShape` assertion.
 export interface TelegramMessageLike {
   id: number;
   date: number;
@@ -35,7 +42,7 @@ export interface TelegramMessageLike {
   out?: boolean;
   fromId?: { userId?: string | number | bigint } | null;
   senderId?: string | number | bigint | null;
-  media?: unknown;
+  media?: Api.TypeMessageMedia | null | unknown;
   sender?: { firstName?: string | null; lastName?: string | null; username?: string | null; id?: unknown } | null;
 }
 
@@ -54,9 +61,9 @@ export interface TelegramClientFactory {
   (apiId: number, apiHash: string, session: string): TelegramClientLike;
 }
 
-export interface TelegramFloodWaitError extends Error {
-  seconds: number;
-}
+// Alias to gramjs's real FloodWaitError shape. Kept as a re-export so callers
+// (tests, runner) can narrow without importing gramjs themselves.
+export type TelegramFloodWaitError = FloodWaitError;
 
 function isFloodWait(error: unknown): error is TelegramFloodWaitError {
   if (!error || typeof error !== "object") return false;
