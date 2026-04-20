@@ -40,14 +40,27 @@ if (config.acPowerOnly) {
   }
 }
 process.chdir(config.repoDir);
-const args = ["dist/cli.js", "--source", config.source, "--output-dir", config.outputDir];
-if (config.source === "imessage") {
-  args.push("--db-path", config.dbPath, "--my-name", config.myName);
-  if (config.includeEmpty) args.push("--include-empty");
-} else if (config.exportPath) {
-  args.push("--export-path", config.exportPath);
+const sources = Array.isArray(config.enabledSources) && config.enabledSources.length > 0
+  ? config.enabledSources
+  : [config.source];
+for (const source of sources) {
+  const sourceOutputDir = sources.length > 1 ? \`\${config.outputDir}/\${source}\` : config.outputDir;
+  const args = ["dist/cli.js", "--source", source, "--output-dir", sourceOutputDir, "--my-name", config.myName];
+  if (source === "imessage") {
+    args.push("--db-path", config.dbPath);
+    if (config.includeEmpty) args.push("--include-empty");
+  } else if (source === "telegram") {
+    if (config.telegramConfigDir) args.push("--telegram-config-dir", config.telegramConfigDir);
+  } else if (source === "whatsapp") {
+    if (config.whatsappDbPath) args.push("--whatsapp-db-path", config.whatsappDbPath);
+  } else if (source === "signal") {
+    if (config.signalDbPath) args.push("--signal-db-path", config.signalDbPath);
+    if (config.signalConfigPath) args.push("--signal-config-path", config.signalConfigPath);
+  } else if (config.exportPath) {
+    args.push("--export-path", config.exportPath);
+  }
+  execFileSync("node", args, { stdio: "inherit" });
 }
-execFileSync("node", args, { stdio: "inherit" });
 if (config.runQmdEmbed && config.qmdCommand) {
   execFileSync("bash", ["-lc", config.qmdCommand], { stdio: "inherit" });
 }

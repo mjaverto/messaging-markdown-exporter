@@ -4,12 +4,14 @@ Export conversations from multiple messaging apps into a shared markdown format.
 
 ## Supported sources
 
-| Source | Input |
-|---|---|
-| `imessage` | macOS `chat.db` |
-| `telegram` | Telegram Desktop JSON export |
-| `whatsapp` | exported WhatsApp `.txt` chat logs |
-| `signal` | Signal markdown exports from tools like `signal-export` |
+All four adapters are native, passive readers — no manual export step.
+
+| Source | Input | One-time setup |
+|---|---|---|
+| `imessage` | macOS `chat.db` (direct read) | Grant Full Disk Access to the binary running the exporter |
+| `telegram` | MTProto via gramjs (persistent session) | `node dist/cli.js telegram-login` |
+| `whatsapp` | WhatsApp Desktop `ChatStorage.sqlite` (Group Container, plaintext) | Grant Full Disk Access; quit WhatsApp Desktop briefly on first run |
+| `signal` | Signal Desktop `db.sqlite` (SQLCipher, key from macOS Keychain) | Quit Signal Desktop so the DB is unlocked; approve the keychain prompt on first run |
 
 ## Architecture
 
@@ -58,11 +60,23 @@ node dist/cli.js \
 
 ### Telegram
 
+First-time auth (run once, interactively):
+
+```bash
+node dist/cli.js telegram-login
+```
+
+You'll be prompted for your apiId/apiHash (from <https://my.telegram.org/apps>),
+phone number, login code, and optional 2FA password. The resulting session
+string is saved under `~/.config/imessage-to-markdown/telegram/` with
+`chmod 600`.
+
+Subsequent unattended runs:
+
 ```bash
 node dist/cli.js \
   --source telegram \
-  --export-path ~/Downloads/telegram-export/result.json \
-  --output-dir ~/brain/messages
+  --output-dir ~/brain/Telegram
 ```
 
 ### WhatsApp
@@ -70,18 +84,26 @@ node dist/cli.js \
 ```bash
 node dist/cli.js \
   --source whatsapp \
-  --export-path ~/Downloads/_chat.txt \
-  --output-dir ~/brain/messages
+  --output-dir ~/brain/WhatsApp
 ```
+
+Reads `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite`
+directly. No manual export. Override with `--whatsapp-db-path` if needed.
 
 ### Signal
 
 ```bash
 node dist/cli.js \
   --source signal \
-  --export-path ~/signal-chats \
-  --output-dir ~/brain/messages
+  --output-dir ~/brain/Signal \
+  --my-name "Mike"
 ```
+
+Reads the Signal Desktop SQLCipher database in place. The encryption key is
+auto-retrieved from the macOS Keychain entry "Signal Safe Storage" and
+unwrapped via Chromium's OSCrypt scheme. Override with `--signal-db-path`
+and `--signal-config-path` if Signal is installed outside the default
+location.
 
 ## Contacts integration (iMessage)
 
@@ -130,9 +152,18 @@ shape above being stable across sources.
 
 ## Installer
 
-The installer now supports choosing a source and scheduling export jobs.
+The installer writes a launchd agent and a generated runner script that
+invokes the CLI once per enabled source.
 
-Right now, scheduled automation is strongest for iMessage and local file-based export flows. For Telegram, WhatsApp, and Signal, the installer can schedule imports from a known export path, but it does not itself create those upstream exports.
+The runner reads `config.json` and loops over `enabledSources` (e.g.
+`["imessage", "telegram", "whatsapp", "signal"]`). When `enabledSources`
+is absent, it falls back to `[config.source]` for backward compatibility
+with existing installs. Each source writes to either `outputDir` (single
+source) or `outputDir/<source>` (multiple).
+
+Fresh installs start with the selected source in `config.source`; to
+enable more sources after install, add `"enabledSources": [...]` to
+`config.json`.
 
 Interactive:
 
@@ -166,21 +197,28 @@ node dist/install.js --uninstall
 ## Source-specific notes
 
 ### iMessage
-- still the strongest adapter
-- uses direct `chat.db` reads
+- direct `chat.db` reads via the `sqlite3` CLI + tmpdir copy
 - attributed-body cleanup is heuristic, not perfect
+- Contacts.app integration resolves phone numbers and emails to display names
 
 ### Telegram
-- designed for Telegram Desktop JSON exports
-- best when fed clean exported chat history
+- uses MTProto (gramjs `TelegramClient`) with a persistent `StringSession`
+- per-dialog cursors under `~/.config/imessage-to-markdown/telegram/cursors.json`
+- `FLOOD_WAIT_N` errors sleep `N` seconds and retry once
+- `AUTH_KEY_UNREGISTERED` (session invalidated) emits a warning and exits 0 so scheduled jobs don't spam errors — re-run `telegram-login`
 
 ### WhatsApp
-- designed for exported text logs
-- backup/database parsing is future work
+- reads `ChatStorage.sqlite` via the same `sqlite3` CLI + tmpdir copy pattern as iMessage
+- joins `ZWAMESSAGE` with `ZWACHATSESSION`, `ZWAGROUPMEMBER`, `ZWAPROFILEPUSHNAME`, and `ZWAMEDIAITEM`
+- sender resolution order: `ZCONTACTNAME` → `ZPUSHNAME` → `ZWAPROFILEPUSHNAME` → Contacts.app → `ZFIRSTNAME` → parsed JID user
+- if WhatsApp Desktop holds the DB lock at the moment of copy, the adapter warns and returns an empty conversation list (the next run will retry)
 
 ### Signal
-- designed to ingest exported markdown
-- best paired with an external exporter like `carderne/signal-export`
+- unlocks Signal's SQLCipher v4 database using the Chromium OSCrypt scheme: PBKDF2-HMAC-SHA1 with salt `"saltysalt"`, 1003 iterations, AES-128-CBC with a 16-space IV, applied to the `encryptedKey` field in `config.json` retrieved from the macOS Keychain entry "Signal Safe Storage"
+- falls back to the legacy plaintext `key` field when present
+- SQLCipher v4 pragmas (`cipher='sqlcipher'`, `legacy=4`) are set before `PRAGMA key` — without them `better-sqlite3-multiple-ciphers` defaults to sqleet and rejects the key
+- a `SIGNAL_DB_BUSY` (SQLITE_BUSY) is treated as a soft failure: the adapter exits 0 with a warning so cron runs while Signal is open don't fail the job
+- **Sonoma 14.5+ caveat**: recent macOS versions changed how Electron's `safeStorage` negotiates with the Keychain. If the first run fails to retrieve the key, see [carderne/signal-export#133](https://github.com/carderne/signal-export/issues/133) — the workaround is usually one targeted Keychain permission dialog approval
 
 ## Development
 
@@ -193,10 +231,17 @@ npm run lint
 
 ## Current limitations
 
-- iMessage remains the deepest native integration
-- Telegram, WhatsApp, and Signal support are adapter-first, not exhaustive
-- attachment handling is still simplified in shared markdown output
-- some stale source-format quirks will still need fixture-driven hardening over time
+- Attachment handling is still simplified across all sources — the markdown
+  renders an attachment marker but does not copy the attachment bytes.
+- WhatsApp: newer Desktop builds emit opaque privacy-IDs (base64-like) in
+  `ZFROMJID` for group messages instead of the `<phone>@s.whatsapp.net`
+  form, so those senders are shown as the raw ID. 1:1 chats and older
+  group data resolve correctly.
+- Telegram: the adapter reads dialogs and messages, but media download is
+  out of scope for this pass.
+- Signal: requires Signal Desktop to be quit at the moment of read
+  (SQLite write-locks the DB). Scheduled runs during an active Signal
+  session will soft-fail with a warning.
 
 ## License
 

@@ -3,6 +3,7 @@ export const CONFIG_VERSION = 1;
 export interface AppConfig {
   version: number;
   source: string;
+  enabledSources?: string[];
   outputDir: string;
   exportPath?: string;
   scheduleHour: number;
@@ -15,6 +16,10 @@ export interface AppConfig {
   includeEmpty: boolean;
   installDir: string;
   repoDir: string;
+  telegramConfigDir?: string;
+  whatsappDbPath?: string;
+  signalDbPath?: string;
+  signalConfigPath?: string;
 }
 
 export function validateSchedule(value: string): { hour: number; minute: number } {
