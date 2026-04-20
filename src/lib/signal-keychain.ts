@@ -31,7 +31,10 @@ export interface ResolvedSignalKey {
 }
 
 export class SignalKeyError extends Error {
-  constructor(message: string, readonly code: "keychain-missing" | "config-missing" | "config-invalid" | "decrypt-failed") {
+  constructor(
+    message: string,
+    readonly code: "keychain-missing" | "config-missing" | "config-invalid" | "decrypt-failed",
+  ) {
     super(message);
     this.name = "SignalKeyError";
   }
@@ -64,7 +67,10 @@ export function decryptEncryptedKey(encryptedKeyHex: string, keychainPassword: s
   }
   const magic = bytes.subarray(0, 3).toString("ascii");
   if (magic !== SAFE_STORAGE_MAGIC_V10 && magic !== SAFE_STORAGE_MAGIC_V11) {
-    throw new SignalKeyError(`Unexpected safeStorage magic prefix: ${JSON.stringify(magic)}`, "config-invalid");
+    throw new SignalKeyError(
+      `Unexpected safeStorage magic prefix: ${JSON.stringify(magic)}`,
+      "config-invalid",
+    );
   }
   const ciphertext = bytes.subarray(3);
   const derived = deriveSafeStorageKey(keychainPassword);

@@ -26,7 +26,9 @@ function renderLine(message: NormalizedMessage): string {
   const text = message.text.trim() || "[no text]";
   const attachmentSummary = message.attachments?.length
     ? ` [${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"} omitted]`
-    : message.hadAttachments ? " [attachments omitted]" : "";
+    : message.hadAttachments
+      ? " [attachments omitted]"
+      : "";
   return `- ${hh}:${mm} ${message.sender}: ${text}${attachmentSummary}`;
 }
 
@@ -52,7 +54,9 @@ export function renderFrontmatter(frontmatter: ChatFrontmatter): string {
   }
   lines.push(`handles: ${yamlList(frontmatter.handles)}`);
   if (frontmatter.chatId != null) {
-    lines.push(`chat_id: ${typeof frontmatter.chatId === "number" ? frontmatter.chatId : yamlString(String(frontmatter.chatId))}`);
+    lines.push(
+      `chat_id: ${typeof frontmatter.chatId === "number" ? frontmatter.chatId : yamlString(String(frontmatter.chatId))}`,
+    );
   }
   if (frontmatter.service) lines.push(`service: ${yamlString(frontmatter.service)}`);
   lines.push(`source: ${yamlString(frontmatter.source)}`);
@@ -83,8 +87,11 @@ function buildFrontmatter(
     ? handles.map((handle) => resolveHandle(handle, contacts))
     : [...handles];
   const isOneOnOne = handles.length === 1;
-  const first = daySorted[0]!;
-  const last = daySorted[daySorted.length - 1]!;
+  const first = daySorted[0];
+  const last = daySorted[daySorted.length - 1];
+  if (!first || !last) {
+    throw new Error("buildFrontmatter requires at least one message in daySorted");
+  }
 
   const frontmatter: ChatFrontmatter = {
     handles,
@@ -123,8 +130,9 @@ function chooseFilename(
   options: RenderOptions,
 ): string {
   if (!options.useContactNames || !options.contacts) return fallbackStem;
-  if (conversation.participants.length !== 1) return fallbackStem;
-  const resolved = resolveHandle(conversation.participants[0]!, options.contacts);
+  const [onlyParticipant, ...rest] = conversation.participants;
+  if (!onlyParticipant || rest.length > 0) return fallbackStem;
+  const resolved = resolveHandle(onlyParticipant, options.contacts);
   return sanitizeFilename(resolved, fallbackStem);
 }
 
@@ -139,8 +147,9 @@ export function renderConversationDays(
   // as a name rather than a phone number when we have a contacts hit.
   const resolvedTitle = (() => {
     if (!contacts) return conversation.title;
-    if (conversation.participants.length === 1) {
-      return resolveHandle(conversation.participants[0]!, contacts);
+    const [firstParticipant, ...restParticipants] = conversation.participants;
+    if (firstParticipant && restParticipants.length === 0) {
+      return resolveHandle(firstParticipant, contacts);
     }
     if (conversation.participants.length > 0) {
       return conversation.participants.map((handle) => resolveHandle(handle, contacts)).join(", ");
@@ -149,7 +158,9 @@ export function renderConversationDays(
   })();
 
   const buckets = new Map<string, NormalizedMessage[]>();
-  const sorted = [...conversation.messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const sorted = [...conversation.messages].sort(
+    (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
+  );
   for (const message of sorted) {
     // Resolve incoming sender to a contact name when possible.
     if (contacts && !message.isFromMe) {
@@ -162,7 +173,10 @@ export function renderConversationDays(
     buckets.set(key, list);
   }
 
-  const fallbackStem = sanitizeFilename(conversation.title || conversation.conversationId, conversation.conversationId);
+  const fallbackStem = sanitizeFilename(
+    conversation.title || conversation.conversationId,
+    conversation.conversationId,
+  );
   const filenameStem = chooseFilename(conversation, fallbackStem, options);
 
   // For the human-readable header we want to show a Participants: line
@@ -181,9 +195,7 @@ export function renderConversationDays(
       `# ${resolvedTitle}`,
       `Source: ${conversation.source}`,
       `Date: ${key}`,
-      headerParticipants.length
-        ? `Participants: ${headerParticipants.join(", ")}`
-        : undefined,
+      headerParticipants.length ? `Participants: ${headerParticipants.join(", ")}` : undefined,
       "",
       ...messages.map(renderLine),
       "",

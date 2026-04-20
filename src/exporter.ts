@@ -16,7 +16,10 @@ const adapters = new Map<string, ExportAdapter>([
   [signalAdapter.source, signalAdapter],
 ]);
 
-export async function exportFromSource(source: string, options: Record<string, unknown>): Promise<{ filesWritten: number; outputPaths: string[] }> {
+export async function exportFromSource(
+  source: string,
+  options: Record<string, unknown>,
+): Promise<{ filesWritten: number; outputPaths: string[] }> {
   const adapter = adapters.get(source);
   if (!adapter) throw new Error(`Unknown source: ${source}`);
   const outputDir = String(options.outputDir || "./exports");
@@ -28,9 +31,10 @@ export async function exportFromSource(source: string, options: Record<string, u
   // loadContactsMap logs a warning and returns an empty map -- the export
   // falls back to raw handles in that case.
   const useContacts = options.useContacts !== false;
-  const contacts: ContactsMap | undefined = useContacts && (source === "imessage" || source === "whatsapp")
-    ? await loadContactsMap()
-    : undefined;
+  const contacts: ContactsMap | undefined =
+    useContacts && (source === "imessage" || source === "whatsapp")
+      ? await loadContactsMap()
+      : undefined;
   const useContactNames = Boolean(options.useContactNames);
 
   const outputPaths: string[] = [];

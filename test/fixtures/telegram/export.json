@@ -6,10 +6,7 @@
       "id": 1,
       "date": "2026-04-19T10:00:00",
       "from": "Mike",
-      "text": [
-        "hello ",
-        { "type": "bold", "text": "world" }
-      ]
+      "text": ["hello ", { "type": "bold", "text": "world" }]
     },
     {
       "id": 2,

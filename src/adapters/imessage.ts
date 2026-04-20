@@ -3,7 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { ExportAdapter, NormalizedAttachment, NormalizedConversation, NormalizedMessage } from "../core/model.js";
+import {
+  ExportAdapter,
+  NormalizedAttachment,
+  NormalizedConversation,
+  NormalizedMessage,
+} from "../core/model.js";
 
 const APPLE_EPOCH_MS = Date.UTC(2001, 0, 1, 0, 0, 0);
 
@@ -16,7 +21,10 @@ function appleTimeToDate(raw: string): Date {
 function cleanDecodedText(input: string): string {
   return input
     .replace(/streamtyped/gi, "")
-    .replace(/NSMutableAttributedString|NSAttributedString|NSMutableString|NSString|NSDictionary|NSNumber|NSValue|NSData|NSObject|NSURL/gi, " ")
+    .replace(
+      /NSMutableAttributedString|NSAttributedString|NSMutableString|NSString|NSDictionary|NSNumber|NSValue|NSData|NSObject|NSURL/gi,
+      " ",
+    )
     .replace(/__kIM[A-Za-z0-9_]+/g, " ")
     .replace(/bplist00/g, " ")
     .replace(/[\u0000-\u001f]/g, " ")
@@ -59,7 +67,8 @@ function inferAttachmentKind(mimeType: string | null): NormalizedAttachment["kin
   if (mimeType.startsWith("image/")) return "image";
   if (mimeType.startsWith("video/")) return "video";
   if (mimeType.startsWith("audio/")) return "audio";
-  if (mimeType.includes("pdf") || mimeType.includes("text") || mimeType.includes("application")) return "document";
+  if (mimeType.includes("pdf") || mimeType.includes("text") || mimeType.includes("application"))
+    return "document";
   return "other";
 }
 
@@ -112,10 +121,12 @@ ORDER BY m.date ASC;
         // date ranges where the JSON output can exceed 30 MB. Raise to 1 GiB.
         maxBuffer: 1024 * 1024 * 1024,
       });
-      const rows = JSON.parse(output) as Array<Record<string, string | number>>;
+      const rows = JSON.parse(output) as Record<string, string | number>[];
       const conversations = new Map<string, NormalizedConversation>();
       for (const row of rows) {
-        const text = String(row.text || "").trim() || decodeAttributedBodyHex(String(row.attributed_body_hex || ""));
+        const text =
+          String(row.text || "").trim() ||
+          decodeAttributedBodyHex(String(row.attributed_body_hex || ""));
         const attachmentCount = Number(row.attachment_count || 0);
         if (!includeEmpty && !text && attachmentCount === 0) continue;
         const participants = String(row.participant_handles || "")
@@ -123,23 +134,34 @@ ORDER BY m.date ASC;
           .map((value) => value.trim())
           .filter(Boolean)
           .sort();
-        const conversationId = String(row.chat_guid || row.chat_display_name || participants.join(",") || row.message_id);
-        const title = String(row.chat_display_name || "") || participants.join(", ") || conversationId;
+        const conversationId = String(
+          row.chat_guid || row.chat_display_name || participants.join(",") || row.message_id,
+        );
+        const title =
+          String(row.chat_display_name || "") || participants.join(", ") || conversationId;
         const chatIdRaw = Number(row.chat_id || 0);
         const service = String(row.service || "") || null;
-        const convo = conversations.get(conversationId) || {
-          source: "imessage",
-          conversationId,
-          title,
-          participants,
-          messages: [],
-          chatId: chatIdRaw > 0 ? chatIdRaw : null,
-          service,
-        } satisfies NormalizedConversation;
+        const convo =
+          conversations.get(conversationId) ||
+          ({
+            source: "imessage",
+            conversationId,
+            title,
+            participants,
+            messages: [],
+            chatId: chatIdRaw > 0 ? chatIdRaw : null,
+            service,
+          } satisfies NormalizedConversation);
         if (!convo.service && service) convo.service = service;
         const isFromMe = Number(row.is_from_me || 0) === 1;
-        const files = String(row.attachment_files || "").split(",").map((value) => value.trim()).filter(Boolean);
-        const mimeTypes = String(row.attachment_mime_types || "").split(",").map((value) => value.trim()).filter(Boolean);
+        const files = String(row.attachment_files || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        const mimeTypes = String(row.attachment_mime_types || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
         const attachments: NormalizedAttachment[] = files.map((file, index) => ({
           path: file,
           name: path.basename(file),

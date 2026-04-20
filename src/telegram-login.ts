@@ -28,20 +28,23 @@ export async function telegramLogin(options: TelegramLoginOptions = {}): Promise
         name: "apiId",
         message: "Telegram apiId (from my.telegram.org)",
         initial: existingCreds.apiId,
-        validate: (value: number) => (Number.isFinite(value) && value > 0 ? true : "Enter a positive integer"),
+        validate: (value: number) =>
+          Number.isFinite(value) && value > 0 ? true : "Enter a positive integer",
       },
       {
         type: "text",
         name: "apiHash",
         message: "Telegram apiHash",
         initial: existingCreds.apiHash,
-        validate: (value: string) => (value && value.length >= 16 ? true : "apiHash looks too short"),
+        validate: (value: string) =>
+          value && value.length >= 16 ? true : "apiHash looks too short",
       },
       {
         type: "text",
         name: "phone",
         message: "Phone number (e.g. +15555551234)",
-        validate: (value: string) => (/^\+?\d{6,}$/.test(value) ? true : "Enter a phone number in international format"),
+        validate: (value: string) =>
+          /^\+?\d{6,}$/.test(value) ? true : "Enter a phone number in international format",
       },
     ],
     { onCancel: () => process.exit(1) },
@@ -98,5 +101,7 @@ export async function telegramLogin(options: TelegramLoginOptions = {}): Promise
   console.log(`\n✅ Telegram login complete.`);
   console.log(`   Credentials saved to: ${credsPath}`);
   console.log(`   Session saved to:     ${sessionPath}`);
-  console.log(`\nNext: run 'imessage-to-markdown --source telegram' (or schedule it) for unattended exports.`);
+  console.log(
+    `\nNext: run 'imessage-to-markdown --source telegram' (or schedule it) for unattended exports.`,
+  );
 }

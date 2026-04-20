@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 
 import { renderConversationDays, renderFrontmatter } from "../src/core/render.js";
-import type { ChatFrontmatter, NormalizedConversation, NormalizedMessage } from "../src/core/model.js";
+import type {
+  ChatFrontmatter,
+  NormalizedConversation,
+  NormalizedMessage,
+} from "../src/core/model.js";
 
 function makeMessage(overrides: Partial<NormalizedMessage>): NormalizedMessage {
   return {
