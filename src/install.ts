@@ -237,7 +237,11 @@ async function resolveConfig(): Promise<AppConfig> {
   }
 
   if (cli.doctor) {
-    const doctor = runDoctor(String(cli.source || "imessage"), expandHome(String(cli.dbPath || DEFAULT_DB)), cli.exportPath ? expandHome(String(cli.exportPath)) : undefined);
+    const doctor = runDoctor({
+      sources: [String(cli.source || "imessage")],
+      dbPath: expandHome(String(cli.dbPath || DEFAULT_DB)),
+      exportPath: cli.exportPath ? expandHome(String(cli.exportPath)) : undefined,
+    });
     for (const warning of doctor.warnings) console.log(`- ${warning}`);
   }
 
@@ -339,7 +343,15 @@ async function resolveConfig(): Promise<AppConfig> {
 
 export async function main(): Promise<void> {
   const config = await resolveConfig();
-  const doctor = runDoctor(config.source, config.dbPath, config.exportPath);
+  const doctor = runDoctor({
+    sources: config.enabledSources && config.enabledSources.length > 0 ? config.enabledSources : [config.source],
+    dbPath: config.dbPath,
+    exportPath: config.exportPath,
+    whatsappDbPath: config.whatsappDbPath,
+    signalDbPath: config.signalDbPath,
+    signalConfigPath: config.signalConfigPath,
+    telegramConfigDir: config.telegramConfigDir,
+  });
   for (const warning of doctor.warnings) console.log(`- ${warning}`);
   const { plistPath, configPath } = writeInstallFiles(config);
   loadLaunchAgent(plistPath);
