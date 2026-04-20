@@ -44,4 +44,21 @@ describe("renderConversationDays", () => {
     expect(content).toContain("Participants: Karissa");
     expect(content).toContain("attachments omitted");
   });
+
+  test.each(["imessage", "telegram", "whatsapp", "signal"])(
+    "writes flat <date>/<file>.md for %s (no source-name prefix)",
+    (source) => {
+      const conversation: NormalizedConversation = {
+        source,
+        conversationId: "c1",
+        title: "Karissa",
+        participants: ["Karissa"],
+        messages: [makeMessage(1, "2026-04-19T08:30:00-04:00", "hi")],
+      };
+      const files = renderConversationDays(conversation);
+      expect(files).toHaveLength(1);
+      expect(files[0]?.relativePath).toMatch(/^2026-04-19\/[^/]+\.md$/);
+      expect(files[0]?.relativePath.startsWith(`${source}/`)).toBe(false);
+    },
+  );
 });

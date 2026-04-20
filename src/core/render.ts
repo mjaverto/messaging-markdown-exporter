@@ -189,7 +189,7 @@ export function renderConversationDays(
       "",
     ].filter((line): line is string => typeof line === "string");
     return {
-      relativePath: `${conversation.source}/${key}/${filenameStem}.md`,
+      relativePath: `${key}/${filenameStem}.md`,
       content: lines.join("\n"),
     };
   });
