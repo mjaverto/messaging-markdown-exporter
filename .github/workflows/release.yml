@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Bump version and publish
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - name: Skip if release commit
+        id: skip_check
+        env:
+          HEAD_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          first_line="${HEAD_MSG%%$'\n'*}"
+          if [[ "$first_line" == chore\(release\):* ]] || [[ "$first_line" == *"[skip ci]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping release: commit is a release/skip-ci commit."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.skip_check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
+      - name: Setup Node.js
+        if: steps.skip_check.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+          always-auth: true
+
+      - name: Install dependencies
+        if: steps.skip_check.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Lint (typecheck)
+        if: steps.skip_check.outputs.skip != 'true'
+        run: npm run lint
+
+      - name: Build
+        if: steps.skip_check.outputs.skip != 'true'
+        run: npm run build
+
+      - name: Test
+        if: steps.skip_check.outputs.skip != 'true'
+        run: npm test
+
+      - name: Configure git identity
+        if: steps.skip_check.outputs.skip != 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump patch version
+        if: steps.skip_check.outputs.skip != 'true'
+        id: bump
+        run: |
+          new_version=$(npm version patch --no-git-tag-version)
+          echo "version=${new_version}" >> "$GITHUB_OUTPUT"
+          echo "Bumped to ${new_version}"
+
+      - name: Commit, tag, and push
+        if: steps.skip_check.outputs.skip != 'true'
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore(release): ${NEW_VERSION} [skip ci]"
+          git tag "${NEW_VERSION}"
+          git push origin HEAD:main
+          git push origin "${NEW_VERSION}"
+
+      - name: Publish to npm (OIDC trusted publisher, with provenance)
+        if: steps.skip_check.outputs.skip != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # Prefers npm OIDC trusted publishing when configured on npmjs.com.
+          # Falls back to NPM_TOKEN auth if a token is present in the env.
+          # See: https://docs.npmjs.com/trusted-publishers
+          npm publish --access public --provenance
+
+      - name: Create GitHub Release
+        if: steps.skip_check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          gh release create "${NEW_VERSION}" \
+            --title "${NEW_VERSION}" \
+            --generate-notes
