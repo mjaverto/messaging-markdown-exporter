@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 
-import { SignalDatabaseBusyError } from "./adapters/signal.js";
 import { DEFAULT_TELEGRAM_CONFIG_DIR } from "./adapters/telegram.js";
+import {
+  EXIT_PERMANENT,
+  EXIT_TRANSIENT,
+  PermanentAdapterError,
+  TransientAdapterError,
+} from "./core/model.js";
 import { exportFromSource } from "./exporter.js";
 import { SignalKeyError } from "./lib/signal-keychain.js";
 import { telegramLogin } from "./telegram-login.js";
@@ -89,11 +94,19 @@ export async function main(argv = process.argv): Promise<void> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((error: unknown) => {
-    if (error instanceof SignalDatabaseBusyError) {
-      // Treat a locked Signal DB as a soft failure: print a warning and exit 0
-      // so scheduled runs while Signal is open don't spam errors.
-      console.warn(`warning: ${error.message}`);
-      process.exit(0);
+    // Transient failures (DB locked while the owning app writes, network
+    // blip) exit 75 (EX_TEMPFAIL). The runner logs but doesn't notify —
+    // we expect the next scheduled tick to clear it.
+    if (error instanceof TransientAdapterError) {
+      console.warn(`warning [${error.source}]: ${error.message}`);
+      process.exit(EXIT_TRANSIENT);
+    }
+    // Permanent failures (auth revoked, config missing) exit 78
+    // (EX_CONFIG). The runner surfaces a macOS notification because
+    // without user action the archive will never update again.
+    if (error instanceof PermanentAdapterError) {
+      console.error(`error [${error.source}]: ${error.message}`);
+      process.exit(EXIT_PERMANENT);
     }
     if (error instanceof SignalKeyError) {
       console.error(`error: ${error.message}`);

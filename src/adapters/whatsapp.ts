@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { ContactsMap, loadContactsMap, resolveHandle } from "../contacts.js";
-import { ExportAdapter, NormalizedAttachment, NormalizedConversation, NormalizedMessage } from "../core/model.js";
+import {
+  ExportAdapter,
+  NormalizedAttachment,
+  NormalizedConversation,
+  NormalizedMessage,
+  TransientAdapterError,
+} from "../core/model.js";
 
 const APPLE_EPOCH_OFFSET_SECONDS = 978_307_200;
 const DEFAULT_DB_PATH = "~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite";
@@ -192,8 +198,11 @@ export const whatsappAdapter: ExportAdapter = {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (/locked|busy/i.test(message)) {
-          console.warn(`[whatsapp] Database is locked even after copy (${message}). Skipping export.`);
-          return [];
+          throw new TransientAdapterError(
+            `WhatsApp database is locked even after copy (${message}). ` +
+              `Quit WhatsApp Desktop or retry on the next scheduled tick.`,
+            "whatsapp",
+          );
         }
         throw error;
       }

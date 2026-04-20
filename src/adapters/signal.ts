@@ -3,12 +3,22 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
-import { ExportAdapter, NormalizedConversation, NormalizedMessage } from "../core/model.js";
+import {
+  ExportAdapter,
+  NormalizedConversation,
+  NormalizedMessage,
+  TransientAdapterError,
+} from "../core/model.js";
 import { resolveSignalKey, SignalKeyError } from "../lib/signal-keychain.js";
 
-export class SignalDatabaseBusyError extends Error {
+/**
+ * Kept as a named subclass of TransientAdapterError so existing README
+ * references and error stacks stay interpretable, while the runner
+ * handles it under the generic transient contract.
+ */
+export class SignalDatabaseBusyError extends TransientAdapterError {
   constructor(message: string) {
-    super(message);
+    super(message, "signal");
     this.name = "SignalDatabaseBusyError";
   }
 }

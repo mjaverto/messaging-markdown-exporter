@@ -43,6 +43,14 @@ process.chdir(config.repoDir);
 const sources = Array.isArray(config.enabledSources) && config.enabledSources.length > 0
   ? config.enabledSources
   : [config.source];
+// Exit-code contract with the CLI:
+//   0  = success (or no-op day with zero messages)
+//   75 = transient failure (DB locked, network blip) — keep going
+//   78 = permanent failure (auth revoked, config missing) — notify the user
+//   *  = unknown error — treat as permanent for safety
+let anyPermanent = false;
+let anyTransient = false;
+const permanentSources = [];
 for (const source of sources) {
   const sourceOutputDir = sources.length > 1 ? \`\${config.outputDir}/\${source}\` : config.outputDir;
   const args = ["dist/cli.js", "--source", source, "--output-dir", sourceOutputDir, "--my-name", config.myName];
@@ -59,10 +67,42 @@ for (const source of sources) {
   } else if (config.exportPath) {
     args.push("--export-path", config.exportPath);
   }
-  execFileSync("node", args, { stdio: "inherit" });
+  try {
+    execFileSync("node", args, { stdio: "inherit" });
+  } catch (err) {
+    const code = err && typeof err.status === "number" ? err.status : 1;
+    if (code === 75) {
+      anyTransient = true;
+      console.warn(\`[runner] \${source} transient failure (exit 75); will retry next tick\`);
+    } else {
+      anyPermanent = true;
+      permanentSources.push(source);
+      console.error(\`[runner] \${source} permanent failure (exit \${code}); user action required\`);
+    }
+  }
 }
 if (config.runQmdEmbed && config.qmdCommand) {
-  execFileSync("bash", ["-lc", config.qmdCommand], { stdio: "inherit" });
+  try {
+    execFileSync("bash", ["-lc", config.qmdCommand], { stdio: "inherit" });
+  } catch (err) {
+    anyPermanent = true;
+    permanentSources.push("qmd-embed");
+    console.error(\`[runner] qmd-embed failed: \${err && err.message}\`);
+  }
+}
+if (anyPermanent) {
+  try {
+    const msg = \`imessage-to-markdown: \${permanentSources.join(", ")} need attention\`;
+    execFileSync("osascript", ["-e", \`display notification "\${msg}" with title "imessage-to-markdown"\`], { stdio: "ignore" });
+  } catch {
+    // osascript failure is non-fatal — the nonzero exit still surfaces via launchd
+  }
+  process.exit(1);
+}
+if (anyTransient) {
+  // Propagate the transient signal so launchd's error stream records it,
+  // but distinguish from permanent via the 75 exit code.
+  process.exit(75);
 }
 EOF
 `;

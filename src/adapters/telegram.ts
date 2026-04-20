@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { ExportAdapter, NormalizedConversation, NormalizedMessage } from "../core/model.js";
+import {
+  ExportAdapter,
+  NormalizedConversation,
+  NormalizedMessage,
+  PermanentAdapterError,
+} from "../core/model.js";
 import { expandHome } from "../utils.js";
 
 export const DEFAULT_TELEGRAM_CONFIG_DIR = "~/.config/imessage-to-markdown/telegram";
@@ -96,13 +101,14 @@ export async function withFloodWaitRetry<T>(
 function readCredentials(configDir: string): TelegramCredentials {
   const credsPath = path.join(configDir, "credentials.json");
   if (!fs.existsSync(credsPath)) {
-    throw new Error(
+    throw new PermanentAdapterError(
       `Telegram credentials missing at ${credsPath}. Run 'imessage-to-markdown telegram-login' first.`,
+      "telegram",
     );
   }
   const raw = JSON.parse(fs.readFileSync(credsPath, "utf8")) as Partial<TelegramCredentials>;
   if (typeof raw.apiId !== "number" || typeof raw.apiHash !== "string") {
-    throw new Error(`Invalid telegram credentials at ${credsPath}`);
+    throw new PermanentAdapterError(`Invalid telegram credentials at ${credsPath}`, "telegram");
   }
   return { apiId: raw.apiId, apiHash: raw.apiHash };
 }
@@ -110,29 +116,51 @@ function readCredentials(configDir: string): TelegramCredentials {
 function readSession(configDir: string): string {
   const sessionPath = path.join(configDir, "session.txt");
   if (!fs.existsSync(sessionPath)) {
-    throw new Error(
+    throw new PermanentAdapterError(
       `Telegram session missing at ${sessionPath}. Run 'imessage-to-markdown telegram-login' first.`,
+      "telegram",
     );
   }
-  return fs.readFileSync(sessionPath, "utf8").trim();
+  // An empty session.txt would silently produce a fresh StringSession
+  // that fails to auth on connect, which then looks exactly like a
+  // legitimate revoked session. Refuse to proceed.
+  const contents = fs.readFileSync(sessionPath, "utf8").trim();
+  if (!contents) {
+    throw new PermanentAdapterError(
+      `Telegram session at ${sessionPath} is empty. Re-run 'imessage-to-markdown telegram-login'.`,
+      "telegram",
+    );
+  }
+  return contents;
 }
 
 export function readCursors(configDir: string): TelegramCursors {
   const cursorsPath = path.join(configDir, "cursors.json");
   if (!fs.existsSync(cursorsPath)) return {};
-  try {
-    const parsed = JSON.parse(fs.readFileSync(cursorsPath, "utf8"));
-    if (parsed && typeof parsed === "object") return parsed as TelegramCursors;
-  } catch {
-    // fall through
+  // A corrupt cursors.json silently resetting to {} is catastrophic —
+  // it forces a full re-fetch of every dialog, which on accounts with
+  // significant backlog will immediately hit FLOOD_WAIT and stall. Make
+  // the failure loud so the user deletes the file deliberately.
+  const raw = fs.readFileSync(cursorsPath, "utf8");
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      `Telegram cursors.json at ${cursorsPath} is not a JSON object. ` +
+        `Delete it to force a full re-fetch, or restore from backup.`,
+    );
   }
-  return {};
+  return parsed as TelegramCursors;
 }
 
 export function writeCursors(configDir: string, cursors: TelegramCursors): void {
   fs.mkdirSync(configDir, { recursive: true });
   const cursorsPath = path.join(configDir, "cursors.json");
-  fs.writeFileSync(cursorsPath, JSON.stringify(cursors, null, 2), "utf8");
+  // Atomic: write to a tmp sibling, then rename. `writeFileSync` is not
+  // atomic; a kill mid-write leaves cursors.json half-written and the
+  // next run throws (by design — see readCursors).
+  const tmpPath = `${cursorsPath}.tmp.${process.pid}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(cursors, null, 2), "utf8");
+  fs.renameSync(tmpPath, cursorsPath);
 }
 
 function dialogTitle(dialog: TelegramDialogLike): string {
@@ -197,11 +225,14 @@ export async function loadTelegramConversations(
       await client.connect();
     } catch (error) {
       if (isAuthKeyUnregistered(error)) {
-        console.warn(
-          "\n⚠️  Telegram session is no longer authorized (AUTH_KEY_UNREGISTERED).\n" +
-            "Run 'imessage-to-markdown telegram-login' to re-authenticate. Exiting without looping.\n",
+        // Auth dead is a permanent user-action-required failure, not a
+        // transient blip — surface it through the runner's notification
+        // path instead of silently exporting zero conversations forever.
+        throw new PermanentAdapterError(
+          "Telegram session is no longer authorized (AUTH_KEY_UNREGISTERED). " +
+            "Run 'imessage-to-markdown telegram-login' to re-authenticate.",
+          "telegram",
         );
-        return [];
       }
       throw error;
     }
@@ -212,19 +243,39 @@ export async function loadTelegramConversations(
       const messages: NormalizedMessage[] = [];
       let highestId = lastSeenId;
 
-      const collected = await withFloodWaitRetry(
-        async () => {
-          const batch: TelegramMessageLike[] = [];
-          for await (const message of client.iterMessages(dialog, {
-            minId: lastSeenId,
-            limit: messageLimit,
-          })) {
-            batch.push(message);
-          }
-          return batch;
-        },
-        { onWait: (seconds) => console.warn(`FloodWait: sleeping ${seconds}s on dialog ${dialogKey}`) },
-      );
+      // Paginate until we've caught up. `iterMessages` returns newest-first
+      // up to `limit`; with only a single call, dialogs with more than
+      // `messageLimit` unseen messages would silently skip everything
+      // older than the newest page (because the cursor advances to the
+      // newest seen id, permanently burying the gap). Walk back with a
+      // descending `maxId` until a page comes back under the limit.
+      const collected: TelegramMessageLike[] = [];
+      let nextMaxId: number | undefined = undefined;
+      while (true) {
+        const page: TelegramMessageLike[] = await withFloodWaitRetry(
+          async () => {
+            const batch: TelegramMessageLike[] = [];
+            const iterOpts: { minId: number; limit: number; maxId?: number } = {
+              minId: lastSeenId,
+              limit: messageLimit,
+            };
+            if (nextMaxId !== undefined) iterOpts.maxId = nextMaxId;
+            for await (const message of client.iterMessages(dialog, iterOpts)) {
+              batch.push(message);
+            }
+            return batch;
+          },
+          { onWait: (seconds) => console.warn(`FloodWait: sleeping ${seconds}s on dialog ${dialogKey}`) },
+        );
+        if (page.length === 0) break;
+        collected.push(...page);
+        if (page.length < messageLimit) break;
+        // Subtract 1 to move past the oldest-in-page regardless of
+        // whether gramjs treats maxId as inclusive or exclusive.
+        const minIdInPage = page.reduce((acc, m) => Math.min(acc, m.id), Number.POSITIVE_INFINITY);
+        if (!Number.isFinite(minIdInPage)) break;
+        nextMaxId = minIdInPage - 1;
+      }
 
       for (const message of collected) {
         const timestamp = new Date(message.date * 1000);

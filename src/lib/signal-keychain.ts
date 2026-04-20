@@ -139,7 +139,7 @@ export function resolveSignalKey(configPath: string): ResolvedSignalKey {
   if (config.encryptedKey) {
     const password = readKeychainPassword();
     const hexKey = decryptEncryptedKey(config.encryptedKey, password);
-    if (!/^[0-9a-fA-F]+$/.test(hexKey)) {
+    if (!/^[0-9a-fA-F]{64,128}$/.test(hexKey)) {
       throw new SignalKeyError(
         "Decrypted Signal key is not hex — aborting to avoid corrupting DB open",
         "decrypt-failed",
@@ -148,7 +148,7 @@ export function resolveSignalKey(configPath: string): ResolvedSignalKey {
     return { hexKey, source: "safe-storage" };
   }
   if (config.key) {
-    if (!/^[0-9a-fA-F]+$/.test(config.key)) {
+    if (!/^[0-9a-fA-F]{64,128}$/.test(config.key)) {
       throw new SignalKeyError("Legacy Signal key field is not hex", "config-invalid");
     }
     return { hexKey: config.key, source: "legacy-plaintext" };
